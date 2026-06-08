@@ -14,13 +14,21 @@ export { logUserSelection };
  * @param {boolean} isKeyboardActivation - Whether activated via keyboard
  * @param {number} selectedIndex - Index in displayed ranking
  * @param {number} cursorTraveledDistancePx - Cursor distance (for trackpad mode)
+ * @param tabsRequired
+ * @param entersRequired
+ * @param tabsRequiredSinceLastClick
+ * @param entersRequiredSinceLastClick
  */
 async function logUserSelection(
     button,
     displayedCandidates,
     isKeyboardActivation = false,
     selectedIndex = null,
-    cursorTraveledDistancePx = 0
+    cursorTraveledDistancePx = 0,
+    tabsRequired = null,
+    entersRequired = null,
+    tabsRequiredSinceLastClick = null,
+    entersRequiredSinceLastClick = null
 ) {
     // Calculate selected index if not provided
     if (selectedIndex === null) {
@@ -75,7 +83,11 @@ async function logUserSelection(
                     elementText: button.text || button.features?.text || '',
                     cursorTraveledDistancePx: cursorTraveledDistancePx,
                     url: window.location.href,
-                    mode: result.currentSession.mode
+                    mode: result.currentSession.mode,
+                    tabsRequired: tabsRequired,
+                    entersRequired: entersRequired,
+                    tabsRequiredSinceLastClick: tabsRequiredSinceLastClick,
+                    entersRequiredSinceLastClick: entersRequiredSinceLastClick,
                 }
             });
         }

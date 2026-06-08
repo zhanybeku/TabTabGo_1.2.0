@@ -146,6 +146,12 @@ class SessionManager {
         // Broadcast task info to content script
         this.broadcastTaskInfo();
 
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+            if (tabs[0]) {
+                chrome.tabs.sendMessage(tabs[0].id, { action: 'resetTabCounters' });
+            }
+        });
+
         return this.currentTask;
     }
 
@@ -242,11 +248,11 @@ class SessionManager {
             const interaction = interactions[i];
 
             // Calculate tabsRequired based on mode
-            let tabsRequired = null;
+            // let tabsRequired = null;
             let distancePx = null;
             if (mode === 'tabtabgo') {
                 // tabsRequired = interaction.selectedIndex + 1; <- this is the index of element basically
-                tabsRequired = interaction.selectedIndex; // <- this is how many tabs were needed to reach the needed element
+                // tabsRequired = interaction.selectedIndex; // <- this is how many tabs were needed to reach the needed element
             }
             else {
                 distancePx = interaction.cursorTraveledDistancePx;
@@ -254,7 +260,8 @@ class SessionManager {
 
             const clickInfo = {
                 timestamp: interaction.timestamp,
-                tabsRequired: tabsRequired,
+                tabsRequired: interaction.tabsRequiredSinceLastClick,
+                entersRequired: interaction.entersRequiredSinceLastClick,
                 elementText: interaction.elementText,
                 TabTabGoClick: interaction.TabTabGoClick,
                 manualClick: interaction.manualClick,
@@ -295,6 +302,7 @@ class SessionManager {
             clickSequence.push({
                 timestamp: null,
                 tabsRequired: null,
+                entersRequired: null,
                 elementText: null,
                 TabTabGoClick: false,
                 manualClick: false,
@@ -327,7 +335,11 @@ class SessionManager {
             TabTabGoClick: data.TabTabGoClick,
             elementText: data.elementText,
             cursorTraveledDistancePx: data.cursorTraveledDistancePx || 0,
-            timeSinceLastInteractionMs: timeSinceLastInteraction
+            timeSinceLastInteractionMs: timeSinceLastInteraction,
+            tabsRequired: data.tabsRequired ?? null,
+            entersRequired: data.entersRequired ?? null,
+            tabsRequiredSinceLastClick: data.tabsRequiredSinceLastClick ?? null,
+            entersRequiredSinceLastClick: data.entersRequiredSinceLastClick ?? null,
         };
 
         this.currentTask.interactions.push(interaction);
@@ -427,11 +439,18 @@ class SessionManager {
             }
         }
 
+        const totalTabsRequired = (this.currentTask.interactions || [])
+            .reduce((sum, i) => sum + (i.tabsRequiredSinceLastClick ?? 0), 0);
+        const totalEntersRequired = (this.currentTask.interactions || [])
+            .reduce((sum, i) => sum + (i.entersRequiredSinceLastClick ?? 0), 0);
+
         this.currentTask.endTs = now;
         this.currentTask.taskDuration = now - this.currentTask.startTs;
         this.currentTask.endState = endState;
         this.currentTask.finalTargetReached = (correctTargets >= targets.length);
         this.currentTask.mistakesMade = hasErrors;
+        this.currentTask.totalTabsRequired = totalTabsRequired;
+        this.currentTask.totalEntersRequired = totalEntersRequired;
 
         // Remove raw interactions array (we have clickSequence now)
         delete this.currentTask.interactions;
@@ -556,6 +575,8 @@ class SessionManager {
                 endState: task.endState,
                 finalTargetReached: task.finalTargetReached,
                 mistakesMade: task.mistakesMade,
+                totalTabsRequired: task.totalTabsRequired ?? null,   // <-- add
+                totalEntersRequired: task.totalEntersRequired ?? null, // <-- add
                 interactions: task.clickSequence || []
             }))
         };

@@ -51,6 +51,11 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     let currentMouseX = 0;
     let currentMouseY = 0;
 
+    let tabPressCount = 0;
+    let enterPressCount = 0;
+    let tabPressCountSinceLastClick = 0;
+    let enterPressCountSinceLastClick = 0;
+
     // Constants
     const DETECTION_DEBOUNCE_MS = 500;
     const AUTO_CLOSE_MS = null;
@@ -623,8 +628,16 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             detectedButtons,
             true,
             currentIndex,
-            0
+            0,
+            tabPressCount,
+            enterPressCount,
+            tabPressCountSinceLastClick,
+            enterPressCountSinceLastClick
         );
+
+        // Reset per-interaction counters only
+        tabPressCountSinceLastClick = 0;
+        enterPressCountSinceLastClick = 0;
 
         resetCursorTracking();
 
@@ -680,6 +693,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 
             // Now handle Tab for navigation
             event.preventDefault();
+            tabPressCount++;
+            tabPressCountSinceLastClick++;
             event.stopPropagation();
             event.stopImmediatePropagation();
 
@@ -715,6 +730,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 
         if (isEnter || isSpace || isW) {
             event.preventDefault();
+            enterPressCount++;
+            enterPressCountSinceLastClick++;
             event.stopPropagation();
             event.stopImmediatePropagation();
 
@@ -814,6 +831,13 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             );
 
             return true; // Keep channel open for async response
+        }
+
+        if (request.action === 'resetTabCounters') {
+            tabPressCount = 0;
+            enterPressCount = 0;
+            sendResponse({ success: true });
+            return true;
         }
 
         if (request.action === 'hideTaskInterstitial') {
