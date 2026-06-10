@@ -208,7 +208,7 @@ class SessionManager {
         const commonWords = elementWords.filter(word => targetWords.includes(word));
         const overlapRatio = commonWords.length / Math.min(elementWords.length, targetWords.length);
 
-        if (overlapRatio >= 0.7) {
+        if (overlapRatio >= 0.5) {
             return true;
         }
 
