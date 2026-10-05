@@ -236,6 +236,134 @@ function resolveRegionElement(regionDef, layoutRegions, legacyResultsById) {
     return legacyElement;
 }
 
+/* ========= PAGE-DERIVED REGION NAMES ========= */
+
+const LANDMARK_SELECTOR = '[role="banner"],[role="navigation"],[role="main"],[role="complementary"],' +
+    '[role="dialog"],[role="region"],[role="search"],[role="form"],[role="toolbar"],[role="tabpanel"]';
+
+// Used when an area has a role but no label of its own
+const ROLE_NAMES = {
+    banner: 'Header',
+    navigation: 'Navigation',
+    main: 'Main Content',
+    complementary: 'Side Panel',
+    dialog: 'Dialog',
+    region: 'Section',
+    search: 'Search',
+    form: 'Form',
+    toolbar: 'Toolbar'
+};
+
+const PAGE_LABEL_MAX_CHARS = 60;
+
+function cleanLabel(text) {
+    return (text || '').replace(/\s+/g, ' ').trim().slice(0, PAGE_LABEL_MAX_CHARS);
+}
+
+/**
+ * The page's own label for an area: aria-label, aria-labelledby, or (if
+ * includeHeadings) its first heading. Gmail mostly leaves aria-label empty but
+ * renders headings ("Conversations", the email subject). Headings that belong to
+ * a nested area are skipped, e.g. the search box's "Search" heading inside the header.
+ */
+function getPageLabel(element, includeHeadings = true) {
+    if (!element || !element.getAttribute) return '';
+
+    const ariaLabel = cleanLabel(element.getAttribute('aria-label'));
+    if (ariaLabel) return ariaLabel;
+
+    const labelledBy = element.getAttribute('aria-labelledby');
+    if (labelledBy) {
+        const text = cleanLabel(labelledBy.split(/\s+/)
+            .map(id => document.getElementById(id)?.textContent || '')
+            .join(' '));
+        if (text) return text;
+    }
+
+    if (!includeHeadings) return '';
+
+    for (const heading of element.querySelectorAll('h1, h2, h3')) {
+        const owner = heading.closest(LANDMARK_SELECTOR);
+        if (owner && owner !== element && element.contains(owner)) continue;
+
+        const text = cleanLabel(heading.textContent);
+        if (text) return text;
+    }
+
+    return '';
+}
+
+/**
+ * Name the main area by what it currently shows, using the page structure
+ * (not the URL): an open conversation renders its messages as a list of
+ * listitems with headings, the email list renders a tab panel / message rows.
+ */
+function describeMainView(element) {
+    const main = element.closest?.('[role="main"]') || element;
+
+    const threadList = Array.from(main.querySelectorAll('[role="list"]')).find(list =>
+        isElementVisible(list) && list.querySelector('[role="listitem"] h2, [role="listitem"] h3')
+    );
+    if (threadList) {
+        return {
+            name: 'Open Email',
+            description: getPageLabel(main) || 'The open conversation',
+            icon: '📖'
+        };
+    }
+
+    const tabPanel = Array.from(main.querySelectorAll('[role="tabpanel"]')).find(isElementVisible);
+    if (tabPanel || main.querySelector('tr.zA')) {
+        const tabLabel = tabPanel ? getPageLabel(tabPanel) : '';
+        return {
+            name: 'Email List',
+            description: tabLabel ? `${tabLabel} tab` : (getPageLabel(main) || 'Your emails'),
+            icon: '📬'
+        };
+    }
+
+    // Some other view (settings, contacts, ...): use whatever the page calls it
+    return {
+        name: getPageLabel(main) || 'Main Content',
+        description: 'Main content area',
+        icon: '📄'
+    };
+}
+
+/**
+ * Name and description for a detected region, taken from the page where possible.
+ * Order: the area's explicit ARIA label (names the whole area), the region's fixed
+ * name, its first heading, its role. Headings come after the fixed name because a
+ * first heading can belong to just one section (e.g. "Labels" in Gmail's sidebar).
+ * The region id (used for candidate extraction) never changes.
+ */
+function describeRegionFromPage(regionDef, element) {
+    if (regionDef.id === 'main') {
+        return describeMainView(element);
+    }
+
+    // Virtual combined regions (e.g. top-navigation) aren't real page areas, so they have no label
+    const isVirtual = element.dataset && element.dataset.combinedRegion === 'true';
+    const explicitLabel = isVirtual ? '' : getPageLabel(element, false);
+    const headingLabel = isVirtual ? '' : getPageLabel(element);
+    const roleName = isVirtual ? '' : ROLE_NAMES[element.getAttribute('role')];
+
+    return {
+        name: explicitLabel || regionDef.name || headingLabel || roleName || 'Section',
+        description: regionDef.description,
+        icon: regionDef.icon
+    };
+}
+
+function escapeHtml(text) {
+    return String(text ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 /**
  * Extract available regions from the current page
  */
@@ -249,12 +377,13 @@ export function extractRegions() {
 
         if (element && isRegionVisible(element, regionDef.id)) {
             const interactiveCount = countInteractiveElements(element);
+            const pageInfo = describeRegionFromPage(regionDef, element);
 
             regions.push({
                 id: regionDef.id,
-                name: regionDef.name,
-                description: regionDef.description,
-                icon: regionDef.icon,
+                name: pageInfo.name,
+                description: pageInfo.description,
+                icon: pageInfo.icon,
                 element: element,
                 priority: regionDef.priority,
                 interactiveCount: interactiveCount,
@@ -444,10 +573,10 @@ export function createRegionSelectionPopup(regions, selectedIndex, mouseX, mouse
         item.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <span style="font-size: 18px;">${region.icon}</span>
+                    <span style="font-size: 18px;">${escapeHtml(region.icon)}</span>
                     <div>
-                        <div style="font-weight: 600; font-size: 14px; margin-bottom: 2px;">${region.name}</div>
-                        <div style="font-size: 11px; opacity: 0.8;">${region.description}</div>
+                        <div style="font-weight: 600; font-size: 14px; margin-bottom: 2px;">${escapeHtml(region.name)}</div>
+                        <div style="font-size: 11px; opacity: 0.8;">${escapeHtml(region.description)}</div>
                     </div>
                 </div>
                 <div style="font-size: 12px; font-weight: 600; opacity: 0.8;">${region.interactiveCount}</div>

@@ -148,7 +148,9 @@ class SessionManager {
 
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0]) {
-                chrome.tabs.sendMessage(tabs[0].id, { action: 'resetTabCounters' });
+                chrome.tabs.sendMessage(tabs[0].id, { action: 'resetTabCounters' }).catch(() => {
+                    console.warn('⚠️ Could not reset Tab/Enter counters: no content script in the active tab');
+                });
             }
         });
 
@@ -460,7 +462,8 @@ class SessionManager {
         delete this.currentTask.interactions;
 
         // Add task to session
-        this.sessionData.tasks.push(this.currentTask);
+        const finishedTask = this.currentTask;
+        this.sessionData.tasks.push(finishedTask);
 
         // Clear current task
         this.currentTask = null;
@@ -482,7 +485,8 @@ class SessionManager {
             await this.endSession();
         }
 
-        return this.sessionData.tasks[this.sessionData.tasks.length - 1];
+        // endSession() clears sessionData after the last task, so return the saved reference
+        return finishedTask;
     }
 
     async continueToNextTask() {

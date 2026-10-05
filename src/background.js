@@ -65,7 +65,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
                 // Start first task after sync
                 setTimeout(async () => {
-                    const task = await sessionManager.startTask(0);
+                    try {
+                        await sessionManager.startTask(0);
+                    } catch (error) {
+                        console.warn('⚠️ Could not start the first task after sync:', error.message);
+                    }
                 }, 500);
 
                 sendResponse({ success: true });
