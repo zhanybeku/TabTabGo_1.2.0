@@ -74,7 +74,7 @@ class SessionManager {
 
         this.sessionData = {
             participantId: participantId,
-            mode: mode, // 'trackpad' | 'tabtabgo'
+            mode: mode, // 'trackpad' | 'tabtabgo' | 'tabtabgo-jev' | 'tabtabgo-jev-history'
             sessionId: sessionNum,
             sessionStartTs: now,
             sessionEndTs: null,
@@ -250,7 +250,7 @@ class SessionManager {
             // Calculate tabsRequired based on mode
             // let tabsRequired = null;
             let distancePx = null;
-            if (mode === 'tabtabgo') {
+            if (mode !== 'trackpad') {
                 // tabsRequired = interaction.selectedIndex + 1; <- this is the index of element basically
                 // tabsRequired = interaction.selectedIndex; // <- this is how many tabs were needed to reach the needed element
             }
@@ -267,6 +267,8 @@ class SessionManager {
                 manualClick: interaction.manualClick,
                 cursorTraveledDistancePx: distancePx,
                 timeSinceLastInteractionMs: interaction.timeSinceLastInteractionMs,
+                jev: interaction.jev ?? null,
+                region: interaction.region ?? null,
                 expectedTarget: null,
                 isError: false,
                 errorReason: null
@@ -340,6 +342,8 @@ class SessionManager {
             entersRequired: data.entersRequired ?? null,
             tabsRequiredSinceLastClick: data.tabsRequiredSinceLastClick ?? null,
             entersRequiredSinceLastClick: data.entersRequiredSinceLastClick ?? null,
+            jev: data.jev ?? null,
+            region: data.region ?? null,
         };
 
         this.currentTask.interactions.push(interaction);

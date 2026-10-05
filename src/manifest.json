@@ -13,6 +13,9 @@
     "downloads",
     "tabs"
   ],
+  "host_permissions": [
+    "https://api.typesafe.ai/*"
+  ],
   "background": {
     "service_worker": "background.js",
     "type": "module"

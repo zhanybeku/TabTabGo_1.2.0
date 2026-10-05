@@ -4,6 +4,13 @@
 
   let timerInterval = null;
 
+  const MODE_LABELS = {
+    'trackpad': 'Trackpad',
+    'tabtabgo': 'TabTabGo',
+    'tabtabgo-jev': 'TabTabGo + Jev',
+    'tabtabgo-jev-history': 'TabTabGo + Jev + History'
+  };
+
   // Format milliseconds to MM:SS
   function formatTime(ms) {
     const totalSeconds = Math.floor(ms / 1000);
@@ -24,7 +31,7 @@
       // Update session info
       document.getElementById('session-user-id').textContent = result.currentSession.participantId;
       document.getElementById('session-mode').textContent =
-          result.currentSession.mode === 'trackpad' ? 'Trackpad' : 'TabTabGo';
+          MODE_LABELS[result.currentSession.mode] || result.currentSession.mode;
       document.getElementById('session-interactions').textContent = result.currentSession.totalInteractions || 0;
 
       // Update current task info
@@ -91,6 +98,14 @@
       return;
     }
 
+    if (mode.startsWith('tabtabgo-jev')) {
+      const { jevApiKey } = await chrome.storage.local.get(['jevApiKey']);
+      if (!jevApiKey) {
+        setJevKeyStatus('Save a Jev API key before starting this mode', '#ef4444');
+        return;
+      }
+    }
+
     try {
       // Send message to background script to start session
       const response = await chrome.runtime.sendMessage({
@@ -107,6 +122,37 @@
       console.error('Error starting session:', error);
     }
   });
+
+  // Jev API key (stored locally in this browser only, never in the source code)
+  function setJevKeyStatus(text, color = '#6b7280') {
+    const status = document.getElementById('jev-key-status');
+    status.textContent = text;
+    status.style.color = color;
+  }
+
+  async function showJevKeyStatus() {
+    const { jevApiKey } = await chrome.storage.local.get(['jevApiKey']);
+    if (jevApiKey) {
+      setJevKeyStatus(`Key saved (…${jevApiKey.slice(-4)})`, '#059669');
+    }
+  }
+
+  document.getElementById('jev-key-save-btn').addEventListener('click', async () => {
+    const input = document.getElementById('jev-key-input');
+    const key = input.value.trim();
+
+    if (!key) {
+      await chrome.storage.local.remove(['jevApiKey']);
+      setJevKeyStatus('Key removed');
+      return;
+    }
+
+    await chrome.storage.local.set({ jevApiKey: key });
+    input.value = '';
+    await showJevKeyStatus();
+  });
+
+  showJevKeyStatus();
 
   // End session button
   // document.getElementById('end-session-btn').addEventListener('click', async () => {

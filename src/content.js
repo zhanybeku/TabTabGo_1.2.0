@@ -63,6 +63,18 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     const LASSO_GLOW_WIDTH = 6;
     const MAX_TOP_BUTTONS = 35;
     const DETECTION_VALID_MS = 1500;
+    const JEV_MODE = 'tabtabgo-jev';
+    const JEV_HISTORY_MODE = 'tabtabgo-jev-history'; // same as JEV_MODE + this session's past interactions
+    const JEV_MAX_OPTIONS = 40;
+    const JEV_LABEL_MAX_CHARS = 80;
+    const JEV_HISTORY_MAX = 20;
+
+    // Jev results, logged with the next element selection
+    let lastJevRegionPrediction = null;  // ranking of the region list
+    let lastJevRegionLog = null;         // ranking + which region the user picked
+    let lastJevElementPrediction = null; // ranking of elements inside the region
+    let jevPending = false;              // navigation keys are held while Jev is ranking
+    let selectedRegionName = null;       // region the current element navigation is in (logged with clicks)
 
     let lastDetection = {
         timestamp: 0,
@@ -83,6 +95,25 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         if (detectedRegions.length === 0) {
             console.warn('⚠️ No regions found on page');
             return false;
+        }
+
+        console.log(isJevMode()
+            ? `🔮 Jev: on (${currentSessionMode})`
+            : `🔮 Jev: off (session mode: ${currentSessionMode || 'no active session'})`);
+
+        // In Jev mode, reorder so the most likely region comes first
+        if (isJevMode()) {
+            jevPending = true;
+            try {
+                const { state, historyCount } = await buildJevRequestState(
+                    'Which region of the page will the user choose next?'
+                );
+                const result = await jevRank(state, detectedRegions, describeRegion);
+                detectedRegions = result.items;
+                lastJevRegionPrediction = { ...result.prediction, historyCount };
+            } finally {
+                jevPending = false;
+            }
         }
 
         // Set mode and index
@@ -150,6 +181,17 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 
         const selectedRegion = detectedRegions[currentRegionIndex];
         console.log(`✅ Selected region: ${selectedRegion.name}`);
+        selectedRegionName = selectedRegion.name;
+
+        if (isJevMode()) {
+            lastJevRegionLog = {
+                ...(lastJevRegionPrediction || { applied: false, error: 'no prediction' }),
+                selectedRegion: selectedRegion.name,
+                selectedRank: currentRegionIndex,
+                selectedDomIndex: selectedRegion.domIndex ?? currentRegionIndex,
+                selectedProbability: selectedRegion.jevProbability ?? null
+            };
+        }
 
         // Remove region UI
         removeRegionOverlay();
@@ -178,9 +220,216 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             return;
         }
 
+        // In Jev mode, reorder so the most likely element comes first
+        lastJevElementPrediction = null;
+        if (isJevMode()) {
+            jevPending = true;
+            try {
+                const { state, historyCount } = await buildJevRequestState(
+                    `The user just chose the "${region.name}" region. Which element in it will the user select next?`
+                );
+                const result = await jevRank(state, detectedButtons, describeCandidate);
+                detectedButtons = result.items;
+                lastJevElementPrediction = { ...result.prediction, historyCount };
+
+                // Keep mouse-click matching (findClickedCandidate) aligned with the new order
+                lastDetection = {
+                    timestamp: Date.now(),
+                    candidates: detectedButtons.map(b => ({ element: b.element, candidate: b }))
+                };
+            } finally {
+                jevPending = false;
+            }
+        }
+
         // Start at first element
         currentIndex = -1;
         await focusNextButton();
+    }
+
+    /* ========= JEV PREDICTION ========= */
+
+    function isJevMode() {
+        return currentSessionMode === JEV_MODE || currentSessionMode === JEV_HISTORY_MODE;
+    }
+
+    /**
+     * State sent to Jev. Both Jev modes send the same description; the history mode
+     * adds this session's past interactions, so history is the only difference between them.
+     * @returns {Promise<{state: string|Object, historyCount: number|null}>}
+     */
+    async function buildJevRequestState(question) {
+        const situation = buildJevState(question);
+        if (currentSessionMode !== JEV_HISTORY_MODE) {
+            return { state: situation, historyCount: null };
+        }
+
+        const history = await loadSessionHistory();
+        return {
+            state: {
+                situation: situation,
+                previous_interactions: history
+            },
+            historyCount: history.length
+        };
+    }
+
+    /**
+     * Last JEV_HISTORY_MAX interactions of the current session, oldest first.
+     * Read from session storage, so it survives page reloads. Task targets and
+     * correctness fields are deliberately left out (they would give away the answers).
+     */
+    async function loadSessionHistory() {
+        try {
+            const { currentSession, currentTask } = await chrome.storage.local.get(['currentSession', 'currentTask']);
+
+            const toEntry = (click, during) => ({
+                element: (click.elementText || '').replace(/\s+/g, ' ').trim().slice(0, JEV_LABEL_MAX_CHARS),
+                region: click.region || 'unknown',
+                input: click.TabTabGoClick ? 'keyboard' : 'mouse',
+                during: during
+            });
+
+            // Completed tasks keep their clicks in clickSequence ('absent' placeholders have no elementText)
+            const earlier = (currentSession?.tasks || []).flatMap(task =>
+                (task.clickSequence || [])
+                    .filter(click => click.elementText)
+                    .map(click => toEntry(click, 'an earlier task'))
+            );
+            const current = (currentTask?.interactions || [])
+                .filter(click => click.elementText)
+                .map(click => toEntry(click, 'the current task'));
+
+            return [...earlier, ...current].slice(-JEV_HISTORY_MAX);
+        } catch (error) {
+            console.warn('⚠️ Could not read session history for Jev:', error);
+            return [];
+        }
+    }
+
+    /**
+     * Name of the detected region containing an element (for mouse clicks)
+     */
+    function regionNameFor(element) {
+        const region = detectedRegions.find(r => r.element && r.element.contains(element));
+        return region ? region.name : null;
+    }
+
+    /**
+     * Describe the current page for Jev, ending with the question being asked.
+     * Deliberately excludes document.title, which contains the signed-in account's email address.
+     */
+    function buildJevState(question) {
+        const hash = window.location.hash || '#inbox';
+        const [folder, openItem] = hash.split('/');
+        const composeOpen = window.location.search.includes('compose=') || hash.includes('compose=');
+
+        const recent = navState.focusHistory
+            .map(h => h.features.text.slice(0, JEV_LABEL_MAX_CHARS))
+            .filter(Boolean);
+
+        return [
+            `Gmail web app. Folder: ${folder.replace('#', '')}.`,
+            openItem ? 'An email conversation is open.' : 'The email list is shown.',
+            composeOpen ? 'A compose window is open.' : '',
+            'The user is navigating by keyboard.',
+            recent.length > 0
+                ? `Previously selected elements, oldest first: ${recent.map(t => `"${t}"`).join(', ')}.`
+                : 'No previous selections yet.',
+            question
+        ].filter(Boolean).join(' ');
+    }
+
+    /**
+     * Short label for one region, e.g. "Email List: Messages in the current folder"
+     */
+    function describeRegion(region) {
+        return region.description ? `${region.name}: ${region.description}` : region.name;
+    }
+
+    /**
+     * Short label for one candidate, e.g. "main:email-row: Project update — Hi all..."
+     */
+    function describeCandidate(button) {
+        const f = button.features || {};
+        const label = (f.ariaLabel || f.tooltip || f.text || f.title || f.tagName || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, JEV_LABEL_MAX_CHARS);
+        const kind = f.reason || f.role || f.tagName || 'element';
+        return `${kind}: ${label}`;
+    }
+
+    /**
+     * Ask Jev for next-selection probabilities and sort the items by them.
+     * Each returned item gets domIndex (original position) and jevProbability.
+     * On any failure (no key, timeout, API error) the original order is kept.
+     * @returns {Promise<{items: Array, prediction: Object}>}
+     */
+    async function jevRank(state, items, describe) {
+        const options = items.slice(0, JEV_MAX_OPTIONS);
+        const criteria = {};
+        options.forEach((item, i) => {
+            criteria[i] = describe(item);
+        });
+
+        let response;
+        try {
+            response = await chrome.runtime.sendMessage({
+                action: 'predictNext',
+                state: state,
+                criteria: criteria
+            });
+        } catch (error) {
+            response = { success: false, error: error.message };
+        }
+
+        if (!response?.success) {
+            console.warn('⚠️ Jev ranking unavailable, using page order:', response?.error);
+            return { items, prediction: { applied: false, error: response?.error || 'unknown' } };
+        }
+
+        const { probabilities } = response.data;
+        const ranked = options
+            .map((item, domIndex) => ({
+                ...item,
+                domIndex,
+                jevProbability: probabilities[domIndex] ?? 0
+            }))
+            .sort((a, b) => b.jevProbability - a.jevProbability);
+
+        // Options beyond the cap keep their page order after the ranked ones
+        const rest = items.slice(JEV_MAX_OPTIONS)
+            .map((item, i) => ({ ...item, domIndex: JEV_MAX_OPTIONS + i, jevProbability: null }));
+
+        const prediction = {
+            applied: true,
+            model: response.data.model,
+            confidence: response.data.confidence,
+            latencyMs: response.data.latencyMs,
+            inputTokens: response.data.inputTokens,
+            optionCount: options.length,
+            topPrediction: describe(ranked[0])
+        };
+
+        console.log(`🔮 Jev ranked ${options.length} options in ${response.data.latencyMs}ms, top:`, prediction.topPrediction);
+        return { items: [...ranked, ...rest], prediction };
+    }
+
+    /**
+     * Jev fields logged with a keyboard selection
+     */
+    function jevLogFor(button, index) {
+        if (!isJevMode()) return null;
+        return {
+            region: lastJevRegionLog,
+            element: {
+                ...(lastJevElementPrediction || { applied: false, error: 'no prediction' }),
+                selectedRank: index,
+                selectedDomIndex: button.domIndex ?? index,
+                selectedProbability: button.jevProbability ?? null
+            }
+        };
     }
 
     /**
@@ -632,7 +881,9 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             tabPressCount,
             enterPressCount,
             tabPressCountSinceLastClick,
-            enterPressCountSinceLastClick
+            enterPressCountSinceLastClick,
+            jevLogFor(button, currentIndex),
+            selectedRegionName
         );
 
         // Reset per-interaction counters only
@@ -698,6 +949,9 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             event.stopPropagation();
             event.stopImmediatePropagation();
 
+            // Ignore presses while Jev is ranking (the list is about to be reordered)
+            if (jevPending) return;
+
             // If navigation not active, start region navigation
             if (navigationMode === 'none') {
                 await startRegionNavigation();
@@ -735,6 +989,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             event.stopPropagation();
             event.stopImmediatePropagation();
 
+            if (jevPending) return;
+
             activateCurrentButton();
         }
     }
@@ -749,6 +1005,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation();
+
+            if (jevPending) return;
 
             if (navigationMode === 'element') {
                 // Go back to region selection
@@ -1168,7 +1426,13 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                 detectedButtons,
                 false,
                 selectedIndex,
-                totalCursorDistance
+                totalCursorDistance,
+                null,
+                null,
+                null,
+                null,
+                null,
+                regionNameFor(button.element)
             );
 
             resetCursorTracking();

@@ -1,5 +1,7 @@
 // regionManager.js - Handles region-based navigation for Gmail
 
+import { detectLayoutRegions, buildVirtualRegionElement, logLayoutDebugTable } from './layoutAnalyzer.js';
+
 /**
  * Define Gmail regions with their selectors and metadata
  */
@@ -53,7 +55,8 @@ const GMAIL_REGIONS = [
         description: 'Compose, Inbox, Starred, Sent, Drafts',
         selector: '[role="navigation"]',
         icon: '📧',
-        priority: 2
+        priority: 2,
+        geometryRole: 'nav'
     },
     {
         id: 'main',
@@ -61,6 +64,7 @@ const GMAIL_REGIONS = [
         description: 'Your emails',
         icon: '📬',
         priority: 3,
+        geometryRole: 'main',
         customExtractor: () => {
             // <div role="main">
             //   ...
@@ -98,6 +102,7 @@ const GMAIL_REGIONS = [
         description: 'Refresh, select, back and forth',
         icon: '🧭',
         priority: 4,
+        geometryRole: 'toolbar',
         customExtractor: () => {
             // Normal case: div.aeH toolbar
             const aeH = document.querySelector('div.aeH');
@@ -119,29 +124,9 @@ const GMAIL_REGIONS = [
                         // Check if category tabs exist (aKk)
                         if (categoryTabs) {
                             // Create combined region: aeH + category tabs
-                            const elements = [aeH, categoryTabs];
-                            const rects = elements.map(el => el.getBoundingClientRect());
-
-                            const left = Math.min(...rects.map(r => r.left));
-                            const top = Math.min(...rects.map(r => r.top));
-                            const right = Math.max(...rects.map(r => r.right));
-                            const bottom = Math.max(...rects.map(r => r.bottom));
-
-                            const wrapper = document.createElement('div');
-                            wrapper.className = 'tabtabgo-virtual-topnav';
-                            wrapper.dataset.combinedRegion = 'true';
+                            const wrapper = buildVirtualRegionElement([aeH, categoryTabs]);
                             wrapper._toolbarElement = aeH;
                             wrapper._categoryTabsElement = categoryTabs;
-
-                            wrapper._virtualBounds = {
-                                left, top, right, bottom,
-                                width: right - left,
-                                height: bottom - top
-                            };
-
-                            wrapper.getBoundingClientRect = function() {
-                                return this._virtualBounds;
-                            };
 
                             console.log('🧭 Using combined region: aeH + aKk');
                             return wrapper;
@@ -168,39 +153,13 @@ const GMAIL_REGIONS = [
 
             // Create a virtual combined region
             if (elements.length > 0) {
-                // Get bounding rects for all elements
-                const rects = elements.map(el => el.getBoundingClientRect());
-
-                // Calculate combined bounds
-                const left = Math.min(...rects.map(r => r.left));
-                const top = Math.min(...rects.map(r => r.top));
-                const right = Math.max(...rects.map(r => r.right));
-                const bottom = Math.max(...rects.map(r => r.bottom));
-
                 // Create a wrapper that encompasses all elements
-                const wrapper = document.createElement('div');
-                wrapper.className = 'tabtabgo-virtual-topnav';
+                const wrapper = buildVirtualRegionElement(elements);
 
                 // Store references for candidate extraction
-                wrapper.dataset.combinedRegion = 'true';
                 wrapper._toolbarElement = toolbar;
                 wrapper._biWElement = biW;
                 wrapper._categoryTabsElement = categoryTabs;
-
-                // Store bounds since this element isn't in the DOM
-                wrapper._virtualBounds = {
-                    left: left,
-                    top: top,
-                    right: right,
-                    bottom: bottom,
-                    width: right - left,
-                    height: bottom - top
-                };
-
-                // Override getBoundingClientRect to return our calculated bounds
-                wrapper.getBoundingClientRect = function () {
-                    return this._virtualBounds;
-                };
 
                 const parts = [];
                 if (toolbar) parts.push('nH.aqK');
@@ -217,7 +176,8 @@ const GMAIL_REGIONS = [
         description: 'Search, settings, and account',
         selector: '[role="banner"]',
         icon: '🔍',
-        priority: 5
+        priority: 5,
+        geometryRole: 'header'
     },
     // {
     //     id: 'left-panel',
@@ -233,24 +193,59 @@ const GMAIL_REGIONS = [
         description: 'Calendar, Keep, Tasks, Contacts',
         selector: '[role="complementary"][aria-label*="Side panel"], [role="complementary"]',
         icon: '📅',
-        priority: 7
+        priority: 7,
+        geometryRole: 'rightPanel'
     }
 ];
+
+const GEOMETRY_CONFIDENCE_THRESHOLD = 0.6;
+
+/**
+ * Resolve a region's element: try the legacy selector/custom extractor first
+ * (unchanged behavior), and only fall back to geometry-based detection when
+ * the legacy path finds nothing (or something invisible). Geometry never
+ * overrides a working legacy result -- this feeds a live user study, so
+ * graceful degradation matters more than always using the "purer" method.
+ */
+function resolveRegionElement(regionDef, layoutRegions, legacyResultsById) {
+    let legacyElement = null;
+
+    if (regionDef.customExtractor) {
+        legacyElement = regionDef.customExtractor();
+    } else if (regionDef.selector) {
+        legacyElement = document.querySelector(regionDef.selector);
+    }
+
+    legacyResultsById[regionDef.id] = { element: legacyElement };
+
+    if (legacyElement && isRegionVisible(legacyElement, regionDef.id)) {
+        return legacyElement;
+    }
+
+    const geometryRole = regionDef.geometryRole;
+    if (!geometryRole) {
+        return legacyElement; // no geometry fallback defined for this region (e.g. compose-window)
+    }
+
+    const geoCandidate = layoutRegions[geometryRole];
+    if (geoCandidate && geoCandidate.confidence >= GEOMETRY_CONFIDENCE_THRESHOLD) {
+        console.log(`🧭 Using geometry fallback for "${regionDef.id}" (confidence ${geoCandidate.confidence.toFixed(2)})`);
+        return geoCandidate.element;
+    }
+
+    return legacyElement;
+}
 
 /**
  * Extract available regions from the current page
  */
 export function extractRegions() {
     const regions = [];
+    const layoutRegions = detectLayoutRegions();
+    const legacyResultsById = {};
 
     for (const regionDef of GMAIL_REGIONS) {
-        let element = null;
-
-        if (regionDef.customExtractor) {
-            element = regionDef.customExtractor();
-        } else {
-            element = document.querySelector(regionDef.selector);
-        }
+        const element = resolveRegionElement(regionDef, layoutRegions, legacyResultsById);
 
         if (element && isRegionVisible(element, regionDef.id)) {
             const interactiveCount = countInteractiveElements(element);
@@ -285,6 +280,17 @@ export function extractRegions() {
         regions.sort((a, b) => a.priority - b.priority);
         console.log('🧭 top-navigation: aeH missing, added placeholder for extractor');
     }
+
+    // Re-key geometry results by region id (they're stored by geometryRole,
+    // e.g. 'nav'/'toolbar') so the debug table can compare them side-by-side
+    // with the legacy results, which are already keyed by region id.
+    const layoutRegionsById = {};
+    for (const regionDef of GMAIL_REGIONS) {
+        if (regionDef.geometryRole) {
+            layoutRegionsById[regionDef.id] = layoutRegions[regionDef.geometryRole] || null;
+        }
+    }
+    logLayoutDebugTable(layoutRegionsById, legacyResultsById);
 
     console.log(`🗺️ Found ${regions.length} regions:`, regions.map(r => `${r.icon} ${r.name} (${r.interactiveCount})`));
     return regions;

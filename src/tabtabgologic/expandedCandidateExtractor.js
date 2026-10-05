@@ -275,6 +275,20 @@ function extractTopNavigationCandidates(region) {
             });
         }
 
+        // Geometry fallback: when this combined region came from layoutAnalyzer's
+        // block-scan (Gmail's CSS classes weren't found) instead of named
+        // aeH/biW/aKk elements, we only have a best-effort guess at which member
+        // is which -- so also scan every raw member generically. `push` dedupes
+        // via `seen`, so this is a no-op wherever the named-slot extraction above
+        // already found everything.
+        if (regionElement._geometryMembers) {
+            regionElement._geometryMembers.forEach(member => {
+                queryAllIn(member, '[role="button"], button, .T-I, [role="tab"]').forEach(el => {
+                    push(el, 'top-nav:geometry-member');
+                });
+            });
+        }
+
         console.log(`📍 Top Navigation (combined): ${candidates.length} candidates`);
         return candidates;
     }

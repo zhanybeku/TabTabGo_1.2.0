@@ -18,6 +18,8 @@ export { logUserSelection };
  * @param entersRequired
  * @param tabsRequiredSinceLastClick
  * @param entersRequiredSinceLastClick
+ * @param {Object|null} jev - Jev prediction details (Jev modes only)
+ * @param {string|null} region - Name of the region the element is in
  */
 async function logUserSelection(
     button,
@@ -28,7 +30,9 @@ async function logUserSelection(
     tabsRequired = null,
     entersRequired = null,
     tabsRequiredSinceLastClick = null,
-    entersRequiredSinceLastClick = null
+    entersRequiredSinceLastClick = null,
+    jev = null,
+    region = null
 ) {
     // Calculate selected index if not provided
     if (selectedIndex === null) {
@@ -88,6 +92,8 @@ async function logUserSelection(
                     entersRequired: entersRequired,
                     tabsRequiredSinceLastClick: tabsRequiredSinceLastClick,
                     entersRequiredSinceLastClick: entersRequiredSinceLastClick,
+                    jev: jev,
+                    region: region,
                 }
             });
         }

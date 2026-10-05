@@ -250,7 +250,18 @@
     <select id="mode-select" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; background: white; cursor: pointer;">
       <option value="trackpad">Trackpad</option>
       <option value="tabtabgo">TabTabGo</option>
+      <option value="tabtabgo-jev">TabTabGo + Jev</option>
+      <option value="tabtabgo-jev-history">TabTabGo + Jev + History</option>
     </select>
+  </div>
+
+  <div style="margin-bottom: 12px;">
+    <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Jev API Key</label>
+    <div style="display: flex; gap: 6px;">
+      <input type="password" id="jev-key-input" placeholder="Paste key from console.typesafe.ai" autocomplete="off" style="flex: 1; min-width: 0; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
+      <button id="jev-key-save-btn" style="width: auto; padding: 8px 12px; font-size: 12px;">Save</button>
+    </div>
+    <div id="jev-key-status" style="font-size: 11px; color: #6b7280; margin-top: 4px;">Only needed for the Jev modes</div>
   </div>
 
   <button id="start-session-btn">

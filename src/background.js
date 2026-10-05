@@ -1,6 +1,7 @@
 // background.js - Service worker for managing sessions
 
 import { sessionManager } from './sessionManager.js';
+import { predictNext } from './jevClient.js';
 
 // Track the session tab ID
 let sessionTabId = null;
@@ -137,6 +138,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 await sessionManager.logInteraction(request.data);
                 console.log('✅ Interaction logged, total now:', sessionManager.sessionData?.totalInteractions);
                 sendResponse({ success: true });
+            }
+            else if (request.action === 'predictNext') {
+                // Rank candidates with Jev (TabTabGo + Jev mode)
+                const prediction = await predictNext(request.state, request.criteria);
+                console.log(`🔮 Jev predicted option ${prediction.choice} in ${prediction.latencyMs}ms`);
+                sendResponse({ success: true, data: prediction });
             }
             else {
                 console.warn('⚠️ Unknown action:', request.action);
