@@ -68,6 +68,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     const JEV_MAX_OPTIONS = 40;
     const JEV_LABEL_MAX_CHARS = 80;
     const JEV_HISTORY_MAX = 20;
+    const CLICK_NEAR_MAX_DEPTH = 3; // how far up from a click that missed every candidate to look for one
+    const RECORD_MODE = 'record'; // free recording: mouse only, no task targets (data for the click-prediction tables)
 
     // Jev results, logged with the next element selection
     let lastJevRegionPrediction = null;  // ranking of the region list
@@ -254,6 +256,13 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     }
 
     /**
+     * Modes where the user clicks with the mouse and TabTabGo navigation is off
+     */
+    function isMouseMode() {
+        return currentSessionMode === 'trackpad' || currentSessionMode === RECORD_MODE;
+    }
+
+    /**
      * State sent to Jev. Both Jev modes send the same description; the history mode
      * adds this session's past interactions, so history is the only difference between them.
      * @returns {Promise<{state: string|Object, historyCount: number|null}>}
@@ -320,24 +329,126 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
      * Deliberately excludes document.title, which contains the signed-in account's email address.
      */
     function buildJevState(question) {
-        const hash = window.location.hash || '#inbox';
-        const [folder, openItem] = hash.split('/');
-        const composeOpen = window.location.search.includes('compose=') || hash.includes('compose=');
-
         const recent = navState.focusHistory
             .map(h => h.features.text.slice(0, JEV_LABEL_MAX_CHARS))
             .filter(Boolean);
 
         return [
-            `Gmail web app. Folder: ${folder.replace('#', '')}.`,
-            openItem ? 'An email conversation is open.' : 'The email list is shown.',
-            composeOpen ? 'A compose window is open.' : '',
+            ...describePageForJev(),
             'The user is navigating by keyboard.',
             recent.length > 0
                 ? `Previously selected elements, oldest first: ${recent.map(t => `"${t}"`).join(', ')}.`
                 : 'No previous selections yet.',
             question
         ].filter(Boolean).join(' ');
+    }
+
+    function describePageForJev() {
+        if (window.location.hostname !== 'mail.google.com') {
+            const pageHeading = (document.querySelector('h1')?.textContent || '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, JEV_LABEL_MAX_CHARS);
+            return [
+                `Website: ${window.location.hostname}.`,
+                pageHeading ? `Page heading: "${pageHeading}".` : ''
+            ];
+        }
+
+        const hash = window.location.hash || '#inbox';
+        const [folder, openItem] = hash.split('/');
+        const composeOpen = window.location.search.includes('compose=') || hash.includes('compose=');
+
+        return [
+            `Gmail web app. Folder: ${folder.replace('#', '')}.`,
+            openItem ? 'An email conversation is open.' : 'The email list is shown.',
+            composeOpen ? 'A compose window is open.' : ''
+        ];
+    }
+
+    /* ========= CLICK CONTEXT (logged with every click) ========= */
+
+    let pageState = null;     // page the user is on now
+    let prevPageState = null; // last page that was different from pageState
+
+    /**
+     * Simplified page state, e.g. {site: 'gmail', folder: 'inbox', emailOpen: true, composeOpen: false}.
+     * Search queries and message ids are left out on purpose.
+     */
+    function getPageState() {
+        if (window.location.hostname !== 'mail.google.com') {
+            return { site: window.location.hostname };
+        }
+
+        const hash = window.location.hash || '#inbox';
+        const parts = hash.slice(1).split('?')[0].split('/');
+        const base = parts[0] || 'inbox';
+        // These keep a name in the next segment (#label/Work, #settings/general), so the email id comes one later
+        const named = ['label', 'category', 'settings'].includes(base);
+        const nested = named || ['search', 'advanced-search'].includes(base);
+
+        return {
+            site: 'gmail',
+            folder: named && parts[1] ? `${base}/${parts[1]}` : base,
+            emailOpen: parts.length > (nested ? 2 : 1),
+            composeOpen: window.location.search.includes('compose=') || hash.includes('compose=')
+        };
+    }
+
+    /**
+     * Update pageState, moving the old one to prevPageState if the page changed
+     */
+    function refreshPageState() {
+        const now = getPageState();
+        if (JSON.stringify(now) !== JSON.stringify(pageState)) {
+            prevPageState = pageState;
+            pageState = now;
+        }
+    }
+
+    /**
+     * What the user saw when they clicked: page state, previous page state,
+     * the clickable labels on offer, and which of them was clicked.
+     * @param {Array} candidates - Detected candidates ({element, features})
+     * @param {Element} clickedElement - The element actually under the cursor (event.target)
+     */
+    function buildClickContext(candidates, clickedElement) {
+        refreshPageState();
+
+        const real = candidates.filter(c => c.element);
+
+        // Innermost candidate containing the clicked element (an email row contains its star button)
+        let clickedIndex = -1;
+        let clickMatch = null;
+        real.forEach((c, i) => {
+            if (c.element.contains(clickedElement) &&
+                (clickedIndex < 0 || real[clickedIndex].element.contains(c.element))) {
+                clickedIndex = i;
+                clickMatch = 'on';
+            }
+        });
+
+        // Clicked beside a candidate rather than on it (e.g. the padding of a menu item): use the
+        // nearest ancestor that contains candidates, but only if it contains exactly one
+        let el = clickedElement;
+        for (let depth = 0; clickedIndex < 0 && el && depth <= CLICK_NEAR_MAX_DEPTH; depth++, el = el.parentElement) {
+            const inside = real.flatMap((c, i) => el.contains(c.element) ? [i] : []);
+            if (inside.length === 1) {
+                clickedIndex = inside[0];
+                clickMatch = 'near';
+            }
+            if (inside.length > 0) break;
+        }
+
+        const labels = real.map(candidateLabel);
+        return {
+            pageState: pageState,
+            prevPageState: prevPageState,
+            candidates: labels,
+            clickedCandidateIndex: clickedIndex,
+            clickedLabel: clickedIndex >= 0 ? labels[clickedIndex] : null,
+            clickMatch: clickMatch // 'on' the candidate, 'near' it, or null (no candidate)
+        };
     }
 
     /**
@@ -348,16 +459,23 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     }
 
     /**
+     * Visible label of a candidate, e.g. "Send" or "Project update — Hi all..."
+     */
+    function candidateLabel(button) {
+        const f = button.features || {};
+        return (f.ariaLabel || f.tooltip || f.text || f.title || f.tagName || '')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, JEV_LABEL_MAX_CHARS);
+    }
+
+    /**
      * Short label for one candidate, e.g. "main:email-row: Project update — Hi all..."
      */
     function describeCandidate(button) {
         const f = button.features || {};
-        const label = (f.ariaLabel || f.tooltip || f.text || f.title || f.tagName || '')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, JEV_LABEL_MAX_CHARS);
         const kind = f.reason || f.role || f.tagName || 'element';
-        return `${kind}: ${label}`;
+        return `${kind}: ${candidateLabel(button)}`;
     }
 
     /**
@@ -883,7 +1001,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             tabPressCountSinceLastClick,
             enterPressCountSinceLastClick,
             jevLogFor(button, currentIndex),
-            selectedRegionName
+            selectedRegionName,
+            buildClickContext(detectedButtons, button.element)
         );
 
         // Reset per-interaction counters only
@@ -912,7 +1031,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         const isS = event.key === 's' || event.key === 'S' || event.key === 'ы' || event.key === 'Ы';
 
         // Disable in trackpad mode - let Tab work normally
-        if (currentSessionMode === 'trackpad') {
+        if (isMouseMode()) {
             return true;
         }
 
@@ -1022,7 +1141,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     /* ========= CURSOR TRACKING ========= */
 
     function trackCursorMovement(e) {
-        if (currentSessionMode === 'trackpad') {
+        if (isMouseMode()) {
             const dx = e.clientX - lastCursorPosition.x;
             const dy = e.clientY - lastCursorPosition.y;
             const distance = Math.sqrt(dx * dx + dy * dy);
@@ -1049,7 +1168,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             detectedButtons = [];
             currentIndex = -1;
 
-            if (currentSessionMode === 'trackpad') {
+            if (isMouseMode()) {
                 resetCursorTracking();
             }
 
@@ -1153,13 +1272,18 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             trackCursorMovement(e);
         });
 
+        // Gmail is a single-page app: folder / open email / compose changes show up as hash changes
+        refreshPageState();
+        window.addEventListener('hashchange', refreshPageState);
+        window.addEventListener('popstate', refreshPageState);
+
         try {
             const result = await chrome.storage.local.get(['sessionActive', 'currentSession']);
             if (result.sessionActive && result.currentSession) {
                 currentSessionMode = result.currentSession.mode;
                 console.log(`📊 Session active in ${currentSessionMode} mode`);
 
-                if (currentSessionMode === 'trackpad') {
+                if (isMouseMode()) {
                     resetCursorTracking();
                 }
             }
@@ -1173,7 +1297,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                     currentSessionMode = changes.currentSession.newValue.mode;
                     console.log(`🔄 Session started via storage: ${currentSessionMode} mode`);
 
-                    if (currentSessionMode === 'trackpad') {
+                    if (isMouseMode()) {
                         resetCursorTracking();
                     }
                 } else {
@@ -1193,7 +1317,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 // REPLACE the mousedown listener with this enhanced version:
 
         document.addEventListener('mousedown', async (event) => {
-            if (currentSessionMode !== 'trackpad') return;
+            if (!isMouseMode()) return;
 
             const clickedElement = event.target;
             const clickedId = clickedElement.id || clickedElement.closest('button')?.id;
@@ -1221,11 +1345,12 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                 targetElement.value ||
                 targetElement.tagName.toLowerCase();
 
-            // Store for potential click event
+            // Store for potential click event. Context is captured now, before the click changes the page
             lastMouseDownData = {
                 timestamp: Date.now(),
                 element: targetElement,
-                elementText: elementText
+                elementText: elementText,
+                context: buildClickContext(extractCandidates(), clickedElement)
             };
             mouseDownLogged = false; // Reset flag
 
@@ -1239,7 +1364,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 // ADD this new mouseup listener to log if click doesn't fire:
 
         document.addEventListener('mouseup', async (event) => {
-            if (currentSessionMode !== 'trackpad') return;
+            if (!isMouseMode()) return;
             if (!lastMouseDownData) return;
             if (mouseDownLogged) return; // Already logged
 
@@ -1252,6 +1377,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 
                 const targetElement = lastMouseDownData.element;
                 const elementText = lastMouseDownData.elementText;
+                const context = lastMouseDownData.context;
 
                 // Skip task control buttons (double check)
                 const clickedId = targetElement.id || targetElement.closest('button')?.id;
@@ -1296,7 +1422,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                                 elementSelector: elementSelector,
                                 cursorTraveledDistancePx: totalCursorDistance,
                                 url: window.location.href,
-                                mode: result.currentSession.mode
+                                mode: result.currentSession.mode,
+                                context: context
                             }
                         });
 
@@ -1326,14 +1453,16 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             }
 
             // In trackpad mode, always log clicks
-            if (currentSessionMode === 'trackpad') {
+            if (isMouseMode()) {
                 let targetElement = clickedElement;
                 let elementText = '';
+                let context = null;
 
                 // Prefer mousedown data if recent (within 500ms)
                 if (lastMouseDownData && Date.now() - lastMouseDownData.timestamp < 500) {
                     targetElement = lastMouseDownData.element;
                     elementText = lastMouseDownData.elementText;
+                    context = lastMouseDownData.context;
                     console.log('✓ Using mousedown data');
                 } else {
                     // Fallback to extracting from click event
@@ -1353,6 +1482,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                         targetElement.alt ||
                         targetElement.value ||
                         targetElement.tagName.toLowerCase();
+
+                    context = buildClickContext(extractCandidates(), clickedElement);
                 }
 
                 // Build selector
@@ -1391,7 +1522,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                                 elementSelector: elementSelector,
                                 cursorTraveledDistancePx: totalCursorDistance,
                                 url: window.location.href,
-                                mode: result.currentSession.mode
+                                mode: result.currentSession.mode,
+                                context: context
                             }
                         });
 
@@ -1432,7 +1564,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                 null,
                 null,
                 null,
-                regionNameFor(button.element)
+                regionNameFor(button.element),
+                buildClickContext(detectedButtons, button.element)
             );
 
             resetCursorTracking();

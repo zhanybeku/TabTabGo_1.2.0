@@ -1,6 +1,7 @@
 // regionManager.js - Handles region-based navigation for Gmail
 
 import { detectLayoutRegions, buildVirtualRegionElement, logLayoutDebugTable } from './layoutAnalyzer.js';
+import { detectGenericRegions, getPageLabel } from './genericRegions.js';
 
 /**
  * Define Gmail regions with their selectors and metadata
@@ -238,9 +239,6 @@ function resolveRegionElement(regionDef, layoutRegions, legacyResultsById) {
 
 /* ========= PAGE-DERIVED REGION NAMES ========= */
 
-const LANDMARK_SELECTOR = '[role="banner"],[role="navigation"],[role="main"],[role="complementary"],' +
-    '[role="dialog"],[role="region"],[role="search"],[role="form"],[role="toolbar"],[role="tabpanel"]';
-
 // Used when an area has a role but no label of its own
 const ROLE_NAMES = {
     banner: 'Header',
@@ -253,45 +251,6 @@ const ROLE_NAMES = {
     form: 'Form',
     toolbar: 'Toolbar'
 };
-
-const PAGE_LABEL_MAX_CHARS = 60;
-
-function cleanLabel(text) {
-    return (text || '').replace(/\s+/g, ' ').trim().slice(0, PAGE_LABEL_MAX_CHARS);
-}
-
-/**
- * The page's own label for an area: aria-label, aria-labelledby, or (if
- * includeHeadings) its first heading. Gmail mostly leaves aria-label empty but
- * renders headings ("Conversations", the email subject). Headings that belong to
- * a nested area are skipped, e.g. the search box's "Search" heading inside the header.
- */
-function getPageLabel(element, includeHeadings = true) {
-    if (!element || !element.getAttribute) return '';
-
-    const ariaLabel = cleanLabel(element.getAttribute('aria-label'));
-    if (ariaLabel) return ariaLabel;
-
-    const labelledBy = element.getAttribute('aria-labelledby');
-    if (labelledBy) {
-        const text = cleanLabel(labelledBy.split(/\s+/)
-            .map(id => document.getElementById(id)?.textContent || '')
-            .join(' '));
-        if (text) return text;
-    }
-
-    if (!includeHeadings) return '';
-
-    for (const heading of element.querySelectorAll('h1, h2, h3')) {
-        const owner = heading.closest(LANDMARK_SELECTOR);
-        if (owner && owner !== element && element.contains(owner)) continue;
-
-        const text = cleanLabel(heading.textContent);
-        if (text) return text;
-    }
-
-    return '';
-}
 
 /**
  * Name the main area by what it currently shows, using the page structure
@@ -365,9 +324,30 @@ function escapeHtml(text) {
 }
 
 /**
+ * Gmail uses the curated GMAIL_REGIONS (kept stable for the user study); every other
+ * site uses generic detection. For testing, generic detection can be forced on Gmail
+ * from the page console: localStorage.setItem('tabtabgo-generic-regions', '1')
+ */
+function useGmailRegions() {
+    if (window.location.hostname !== 'mail.google.com') return false;
+    try {
+        return localStorage.getItem('tabtabgo-generic-regions') !== '1';
+    } catch (error) {
+        return true;
+    }
+}
+
+/**
  * Extract available regions from the current page
  */
 export function extractRegions() {
+    if (!useGmailRegions()) {
+        const genericRegions = detectGenericRegions();
+        console.log(`🗺️ Found ${genericRegions.length} regions (generic):`,
+            genericRegions.map(r => `${r.icon} ${r.name} (${r.interactiveCount}) — ${r.description}`));
+        return genericRegions;
+    }
+
     const regions = [];
     const layoutRegions = detectLayoutRegions();
     const legacyResultsById = {};
@@ -501,7 +481,15 @@ function isElementVisible(element) {
 
 export function extractCandidatesInRegion(region, extractCandidatesFn) {
     if (!region || !region.element) return [];
-    const regionCandidates = extractCandidatesFn(region);
+    let regionCandidates = extractCandidatesFn(region);
+
+    // Generic regions don't offer elements that belong to a nested region
+    if (region.excludeElements && region.excludeElements.length > 0) {
+        regionCandidates = regionCandidates.filter(c =>
+            !region.excludeElements.some(excluded => excluded.contains(c.element))
+        );
+    }
+
     console.log(`🎯 Found ${regionCandidates.length} candidates in "${region.name}" region`);
     return regionCandidates;
 }

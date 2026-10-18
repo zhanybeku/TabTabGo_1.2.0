@@ -1,5 +1,10 @@
 // sessionManager.js - Handles user study sessions with data collection and export
 
+// Free recording ('record' mode): one open-ended task with no targets, ended from the popup
+const FREE_RECORDING_TASKS = [
+    { taskId: "free_recording", targets: [] }
+];
+
 class SessionManager {
     constructor() {
         this.sessionData = null;
@@ -12,8 +17,17 @@ class SessionManager {
         this.waitingForTaskContinue = false;
     }
 
+    // Tasks of the current session's mode
+    get TASKS() {
+        return this.tasksForMode(this.sessionData?.mode);
+    }
+
+    tasksForMode(mode) {
+        return mode === 'record' ? FREE_RECORDING_TASKS : this.STUDY_TASKS;
+    }
+
     // Predefined task list
-    TASKS = [
+    STUDY_TASKS = [
         {
             taskId: "task_0101",
             targets: ["Drafts", "FIRST MESSAGE — - HELLO THIS IS THE FIRST MESSAGE", "Close", "Inbox"]
@@ -74,7 +88,7 @@ class SessionManager {
 
         this.sessionData = {
             participantId: participantId,
-            mode: mode, // 'trackpad' | 'tabtabgo' | 'tabtabgo-jev' | 'tabtabgo-jev-history'
+            mode: mode, // 'trackpad' | 'record' | 'tabtabgo' | 'tabtabgo-jev' | 'tabtabgo-jev-history'
             sessionId: sessionNum,
             sessionStartTs: now,
             sessionEndTs: null,
@@ -83,7 +97,7 @@ class SessionManager {
             totalInteractions: 0,
             totalManualClicks: 0,
             totalTabTabGoClicks: 0,
-            totalTasks: this.TASKS.length,
+            totalTasks: this.tasksForMode(mode).length,
             tasks: [],
             syncData: null // Will be populated after sync screen
         };
@@ -252,7 +266,7 @@ class SessionManager {
             // Calculate tabsRequired based on mode
             // let tabsRequired = null;
             let distancePx = null;
-            if (mode !== 'trackpad') {
+            if (mode !== 'trackpad' && mode !== 'record') {
                 // tabsRequired = interaction.selectedIndex + 1; <- this is the index of element basically
                 // tabsRequired = interaction.selectedIndex; // <- this is how many tabs were needed to reach the needed element
             }
@@ -271,6 +285,7 @@ class SessionManager {
                 timeSinceLastInteractionMs: interaction.timeSinceLastInteractionMs,
                 jev: interaction.jev ?? null,
                 region: interaction.region ?? null,
+                context: interaction.context ?? null,
                 expectedTarget: null,
                 isError: false,
                 errorReason: null
@@ -291,12 +306,13 @@ class SessionManager {
                     clickInfo.errorReason = 'incorrect';
                     // Don't increment targetIndex - still expecting the same target
                 }
-            } else {
+            } else if (targets.length > 0) {
                 // Extra click (more clicks than targets)
                 clickInfo.isError = true;
                 clickInfo.errorReason = 'extra';
                 clickInfo.expectedTarget = null;
             }
+            // No targets at all (free recording): every click is just recorded
 
             clickSequence.push(clickInfo);
         }
@@ -346,6 +362,7 @@ class SessionManager {
             entersRequiredSinceLastClick: data.entersRequiredSinceLastClick ?? null,
             jev: data.jev ?? null,
             region: data.region ?? null,
+            context: data.context ?? null,
         };
 
         this.currentTask.interactions.push(interaction);
@@ -402,7 +419,9 @@ class SessionManager {
         if (!this.currentTask) return;
 
         const targets = this.currentTask.targets || [];
-        const interactions = this.currentTask.interactions || [];
+
+        // Free recording has no targets, so it only ends from the popup
+        if (targets.length === 0) return;
 
         // Analyze current sequence
         const clickSequence = this.analyzeClickSequence();

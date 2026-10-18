@@ -6,6 +6,7 @@
 
   const MODE_LABELS = {
     'trackpad': 'Trackpad',
+    'record': 'Free recording',
     'tabtabgo': 'TabTabGo',
     'tabtabgo-jev': 'TabTabGo + Jev',
     'tabtabgo-jev-history': 'TabTabGo + Jev + History'

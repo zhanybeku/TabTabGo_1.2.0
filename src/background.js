@@ -81,33 +81,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
             else if (request.action === 'completeTask') {
                 console.log('✅ Completing task with endState:', request.endState);
+                // completeTask() itself starts the next task, or ends the session (and exports) after the last one
                 await sessionManager.completeTask(request.endState);
 
-                // Get current session info to determine task progress
-                const sessionInfo = sessionManager.getSessionInfo();
-                const completedTaskNumber = sessionInfo.currentSession.tasks.length;
-                const totalTasks = sessionInfo.TASKS.length;
-
-                console.log(`📊 Task progress: ${completedTaskNumber}/${totalTasks}`);
-
-                // Show interstitial
-                await showTaskInterstitial(completedTaskNumber, totalTasks, request.endState);
-
-                // Auto-start next task if not the last one
-                if (completedTaskNumber < totalTasks) {
-                    setTimeout(async () => {
-                        console.log('🔄 Auto-starting next task...');
-                        await sessionManager.startTask(completedTaskNumber); // Next task index
-                    }, 2500); // Match interstitial duration
-                } else {
-                    // Last task completed, end session
-                    setTimeout(async () => {
-                        console.log('🏁 All tasks complete, ending session...');
-                        await sessionManager.endSession();
-                        // Clear session tab ID
-                        sessionTabId = null;
-                        await chrome.storage.local.remove(['sessionTabId']);
-                    }, 3000);
+                if (!sessionManager.sessionActive) {
+                    console.log('🏁 All tasks complete, session ended');
+                    sessionTabId = null;
+                    await chrome.storage.local.remove(['sessionTabId']);
                 }
 
                 sendResponse({ success: true });

@@ -20,6 +20,7 @@ export { logUserSelection };
  * @param entersRequiredSinceLastClick
  * @param {Object|null} jev - Jev prediction details (Jev modes only)
  * @param {string|null} region - Name of the region the element is in
+ * @param {Object|null} context - Page state, previous page state and candidate labels (buildClickContext)
  */
 async function logUserSelection(
     button,
@@ -32,7 +33,8 @@ async function logUserSelection(
     tabsRequiredSinceLastClick = null,
     entersRequiredSinceLastClick = null,
     jev = null,
-    region = null
+    region = null,
+    context = null
 ) {
     // Calculate selected index if not provided
     if (selectedIndex === null) {
@@ -94,6 +96,7 @@ async function logUserSelection(
                     entersRequiredSinceLastClick: entersRequiredSinceLastClick,
                     jev: jev,
                     region: region,
+                    context: context,
                 }
             });
         }
