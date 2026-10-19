@@ -12,6 +12,11 @@
     'tabtabgo-jev-history': 'TabTabGo + Jev + History'
   };
 
+  const DETECTION_LABELS = {
+    'gmail-rules': 'Gmail rules',
+    'dynamic': 'Dynamic'
+  };
+
   // Format milliseconds to MM:SS
   function formatTime(ms) {
     const totalSeconds = Math.floor(ms / 1000);
@@ -33,6 +38,8 @@
       document.getElementById('session-user-id').textContent = result.currentSession.participantId;
       document.getElementById('session-mode').textContent =
           MODE_LABELS[result.currentSession.mode] || result.currentSession.mode;
+      document.getElementById('session-detection').textContent =
+          DETECTION_LABELS[result.currentSession.detection] || 'Gmail rules';
       document.getElementById('session-interactions').textContent = result.currentSession.totalInteractions || 0;
 
       // Update current task info
@@ -94,6 +101,7 @@
     const participantId = document.getElementById('participant-id-input').value.trim();
     const sessionId = document.getElementById('session-id-input').value.trim();
     const mode = document.getElementById('mode-select').value;
+    const detection = document.getElementById('detection-select').value;
 
     if (!participantId) {
       return;
@@ -113,7 +121,8 @@
         action: 'startSession',
         participantId: participantId,
         sessionId: sessionId,
-        mode: mode
+        mode: mode,
+        detection: detection
       });
 
       if (response.success) {
@@ -240,6 +249,15 @@
     if (e.target === citeModal) {
       citeModal.classList.remove('show');
     }
+  });
+
+  // Detection setting: saved right away, so it also applies outside sessions
+  const detectionSelect = document.getElementById('detection-select');
+  chrome.storage.local.get(['detectionMethod']).then(({ detectionMethod }) => {
+    if (detectionMethod) detectionSelect.value = detectionMethod;
+  });
+  detectionSelect.addEventListener('change', () => {
+    chrome.storage.local.set({ detectionMethod: detectionSelect.value });
   });
 
   // Initialize UI on load

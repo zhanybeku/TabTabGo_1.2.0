@@ -1,6 +1,7 @@
 // content.js
 import {navState, updateFocusHistory} from './tabtabgologic/tabtabgoCore.js';
-import {extractCandidates} from './tabtabgologic/expandedCandidateExtractor.js';
+import {extractCandidates, extractOnScreenCandidates} from './tabtabgologic/expandedCandidateExtractor.js';
+import {isVisible, roleOf} from './tabtabgologic/pageReader.js';
 import {logUserSelection} from "./inMemoryLogger.js";
 import {
     createRegionOverlay,
@@ -8,7 +9,8 @@ import {
     extractCandidatesInRegion,
     extractRegions,
     removeRegionOverlay,
-    removeRegionSelectionPopup
+    removeRegionSelectionPopup,
+    useGmailRegions
 } from './tabtabgologic/regionManager.js';
 import {performRobustClick} from "./tabtabgologic/clickHelper.js";
 import './syncScreen.js'; // Import sync screen module
@@ -45,6 +47,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 
     // Session state
     let currentSessionMode = null;
+    let detectionMethod = 'gmail-rules'; // popup setting: 'gmail-rules' | 'dynamic'
     let lastCursorPosition = { x: 0, y: 0 };
     let totalCursorDistance = 0;
     let lastInteractionTime = Date.now();
@@ -92,7 +95,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         console.log('🗺️ Starting region navigation...');
 
         // Extract available regions
-        detectedRegions = extractRegions();
+        detectedRegions = extractRegions(detectionMethod);
 
         if (detectedRegions.length === 0) {
             console.warn('⚠️ No regions found on page');
@@ -132,9 +135,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
      * Show region selection UI
      */
     function showRegionSelection() {
-        // Show overlay highlighting regions
-        removeRegionOverlay();
-        regionOverlay = createRegionOverlay(detectedRegions, currentRegionIndex);
+        scrollRegionIntoView(detectedRegions[currentRegionIndex]);
+        drawRegionOverlay();
 
         // Show popup near cursor
         removeRegionSelectionPopup();
@@ -144,6 +146,42 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             currentMouseX || window.innerWidth / 2,
             currentMouseY || 100
         );
+    }
+
+    /**
+     * Draw the region boxes where the regions are now (the page may have scrolled since detection)
+     */
+    function drawRegionOverlay() {
+        detectedRegions.forEach(updateRegionBounds);
+        removeRegionOverlay();
+        regionOverlay = createRegionOverlay(detectedRegions, currentRegionIndex);
+    }
+
+    function updateRegionBounds(region) {
+        // Combined Gmail regions are detached wrappers (not in the page), so they keep their detected bounds
+        if (!region.element || !region.element.isConnected) return;
+        region.bounds = region.element.getBoundingClientRect();
+    }
+
+    /**
+     * Scroll so a region that is completely off screen becomes visible (e.g. a page footer)
+     */
+    function scrollRegionIntoView(region) {
+        if (!region || !region.element || !region.element.isConnected) return;
+        const rect = region.element.getBoundingClientRect();
+        if (rect.bottom < 0 || rect.top > window.innerHeight) {
+            region.element.scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    let regionRedrawPending = false;
+    function onScrollDuringRegionSelection() {
+        if (navigationMode !== 'region' || regionRedrawPending) return;
+        regionRedrawPending = true;
+        requestAnimationFrame(() => {
+            regionRedrawPending = false;
+            if (navigationMode === 'region') drawRegionOverlay();
+        });
     }
 
     /**
@@ -377,7 +415,13 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
      */
     function getPageState() {
         if (window.location.hostname !== 'mail.google.com') {
-            return { site: window.location.hostname };
+            // Generic: which page, and whether a dialog covers it. The query string and hash are
+            // left out (they can hold searches and ids); the analysis can group similar paths.
+            return {
+                site: window.location.hostname,
+                path: window.location.pathname,
+                dialogOpen: isDialogOpen()
+            };
         }
 
         const hash = window.location.hash || '#inbox';
@@ -391,8 +435,29 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             site: 'gmail',
             folder: named && parts[1] ? `${base}/${parts[1]}` : base,
             emailOpen: parts.length > (nested ? 2 : 1),
-            composeOpen: window.location.search.includes('compose=') || hash.includes('compose=')
+            composeOpen: window.location.search.includes('compose=') || hash.includes('compose='),
+            // Pop-ups like the Unsubscribe confirmation (Gmail also marks the compose window as a dialog)
+            dialogOpen: isDialogOpen()
         };
+    }
+
+    /**
+     * A visible pop-up window: the page marks it with role="dialog"/"alertdialog" or a <dialog> element
+     */
+    function isDialogOpen() {
+        return Array.from(document.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open]'))
+            .some(isVisible);
+    }
+
+    /**
+     * Whether two labels name the same thing: compared on letters and digits only, one starts
+     * with the other ("Inbox351" ~ "Inbox 351 unread", but "Older" !~ "Show more messages")
+     */
+    function labelsResemble(a, b) {
+        const simplify = text => (text || '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
+        const x = simplify(a);
+        const y = simplify(b);
+        return x.length > 0 && y.length > 0 && (x.startsWith(y) || y.startsWith(x));
     }
 
     /**
@@ -407,12 +472,21 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     }
 
     /**
+     * Clickable elements on the page, for click logging and mouse-click matching.
+     * Follows the Detection setting: Gmail rules use the original extractor, Dynamic the page reader.
+     */
+    function extractPageCandidates() {
+        return useGmailRegions(detectionMethod) ? extractCandidates() : extractOnScreenCandidates();
+    }
+
+    /**
      * What the user saw when they clicked: page state, previous page state,
      * the clickable labels on offer, and which of them was clicked.
      * @param {Array} candidates - Detected candidates ({element, features})
      * @param {Element} clickedElement - The element actually under the cursor (event.target)
+     * @param {string|null} clickedText - Text of the clicked element, if known; a "near" match must resemble it
      */
-    function buildClickContext(candidates, clickedElement) {
+    function buildClickContext(candidates, clickedElement, clickedText = null) {
         refreshPageState();
 
         const real = candidates.filter(c => c.element);
@@ -433,7 +507,10 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         let el = clickedElement;
         for (let depth = 0; clickedIndex < 0 && el && depth <= CLICK_NEAR_MAX_DEPTH; depth++, el = el.parentElement) {
             const inside = real.flatMap((c, i) => el.contains(c.element) ? [i] : []);
-            if (inside.length === 1) {
+            // A guess is only kept if its label resembles what was clicked (a click on a disabled
+            // "Older" button must not be logged as the "Show more messages" button next to it)
+            if (inside.length === 1 &&
+                (clickedText === null || labelsResemble(clickedText, candidateLabel(real[inside[0]])))) {
                 clickedIndex = inside[0];
                 clickMatch = 'near';
             }
@@ -447,6 +524,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             candidates: labels,
             clickedCandidateIndex: clickedIndex,
             clickedLabel: clickedIndex >= 0 ? labels[clickedIndex] : null,
+            clickedRole: clickedIndex >= 0 ? roleOf(real[clickedIndex].element) : null, // e.g. 'button', 'textbox'
             clickMatch: clickMatch // 'on' the candidate, 'near' it, or null (no candidate)
         };
     }
@@ -460,10 +538,11 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
 
     /**
      * Visible label of a candidate, e.g. "Send" or "Project update — Hi all..."
+     * Dynamic detection provides the accessible name (features.name); the Gmail rules don't.
      */
     function candidateLabel(button) {
         const f = button.features || {};
-        return (f.ariaLabel || f.tooltip || f.text || f.title || f.tagName || '')
+        return (f.name || f.ariaLabel || f.tooltip || f.text || f.title || f.tagName || '')
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, JEV_LABEL_MAX_CHARS);
@@ -591,7 +670,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         isDetecting = true;
 
         try {
-            const rawCandidates = extractCandidates();
+            const rawCandidates = extractPageCandidates();
             console.log('🎯 Raw candidates found:', rawCandidates.length);
 
             lastDetection = {
@@ -909,6 +988,20 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         if (detectedButtons.length === 0) return;
 
         currentIndex = (currentIndex + 1) % detectedButtons.length;
+        focusCurrentButton();
+    }
+
+    async function focusPreviousButton() {
+        if (detectedButtons.length === 0) return;
+
+        currentIndex = currentIndex <= 0 ? detectedButtons.length - 1 : currentIndex - 1;
+        focusCurrentButton();
+    }
+
+    /**
+     * Highlight detectedButtons[currentIndex] and scroll it into view
+     */
+    function focusCurrentButton() {
         const button = detectedButtons[currentIndex];
 
         removeLasso();
@@ -935,17 +1028,6 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                 inline: 'center'
             });
         }
-    }
-
-    async function focusPreviousButton() {
-        if (detectedButtons.length === 0) return;
-
-        currentIndex = currentIndex - 1;
-        if (currentIndex < 0) {
-            currentIndex = detectedButtons.length - 1;
-        }
-
-        await focusNextButton();
     }
 
     function closeSmartNavigation() {
@@ -1231,6 +1313,8 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         }
 
         detectionTimeout = setTimeout(async () => {
+            // While navigating, detectedButtons is the list being cycled through: don't replace it
+            if (navigationMode !== 'none') return;
             detectedButtons = await runAIMouseDetection();
             if (currentIndex >= detectedButtons.length) {
                 currentIndex = -1;
@@ -1278,6 +1362,16 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         window.addEventListener('popstate', refreshPageState);
 
         try {
+            const { detectionMethod: savedDetection } = await chrome.storage.local.get(['detectionMethod']);
+            if (savedDetection) detectionMethod = savedDetection;
+        } catch (error) {
+            console.warn('⚠️ Could not read the detection setting:', error);
+        }
+
+        // Keep the region boxes on their regions while the page scrolls
+        window.addEventListener('scroll', onScrollDuringRegionSelection, { capture: true, passive: true });
+
+        try {
             const result = await chrome.storage.local.get(['sessionActive', 'currentSession']);
             if (result.sessionActive && result.currentSession) {
                 currentSessionMode = result.currentSession.mode;
@@ -1292,6 +1386,11 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
         }
 
         chrome.storage.onChanged.addListener((changes, areaName) => {
+            if (areaName === 'local' && changes.detectionMethod?.newValue) {
+                detectionMethod = changes.detectionMethod.newValue;
+                console.log(`🔎 Detection: ${detectionMethod}`);
+            }
+
             if (areaName === 'local' && changes.currentSession) {
                 if (changes.currentSession.newValue) {
                     currentSessionMode = changes.currentSession.newValue.mode;
@@ -1350,7 +1449,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                 timestamp: Date.now(),
                 element: targetElement,
                 elementText: elementText,
-                context: buildClickContext(extractCandidates(), clickedElement)
+                context: buildClickContext(extractPageCandidates(), clickedElement, elementText)
             };
             mouseDownLogged = false; // Reset flag
 
@@ -1483,7 +1582,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
                         targetElement.value ||
                         targetElement.tagName.toLowerCase();
 
-                    context = buildClickContext(extractCandidates(), clickedElement);
+                    context = buildClickContext(extractPageCandidates(), clickedElement, elementText);
                 }
 
                 // Build selector

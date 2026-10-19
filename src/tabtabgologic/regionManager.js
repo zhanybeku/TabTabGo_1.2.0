@@ -324,24 +324,19 @@ function escapeHtml(text) {
 }
 
 /**
- * Gmail uses the curated GMAIL_REGIONS (kept stable for the user study); every other
- * site uses generic detection. For testing, generic detection can be forced on Gmail
- * from the page console: localStorage.setItem('tabtabgo-generic-regions', '1')
+ * The curated GMAIL_REGIONS and extractors only exist for Gmail. Every other site, and
+ * Gmail with Detection set to "Dynamic" in the popup, uses generic detection.
  */
-function useGmailRegions() {
-    if (window.location.hostname !== 'mail.google.com') return false;
-    try {
-        return localStorage.getItem('tabtabgo-generic-regions') !== '1';
-    } catch (error) {
-        return true;
-    }
+export function useGmailRegions(detection) {
+    return window.location.hostname === 'mail.google.com' && detection !== 'dynamic';
 }
 
 /**
  * Extract available regions from the current page
+ * @param {string} detection - Popup setting: 'gmail-rules' | 'dynamic'
  */
-export function extractRegions() {
-    if (!useGmailRegions()) {
+export function extractRegions(detection = 'gmail-rules') {
+    if (!useGmailRegions(detection)) {
         const genericRegions = detectGenericRegions();
         console.log(`🗺️ Found ${genericRegions.length} regions (generic):`,
             genericRegions.map(r => `${r.icon} ${r.name} (${r.interactiveCount}) — ${r.description}`));

@@ -1,6 +1,8 @@
 // contextAwareCandidateExtractor.js
 // Context-aware extractor that adapts to Gmail regions
 
+import { findInteractiveElements } from './pageReader.js';
+
 /**
  * Extract candidates with region context
  * @param {Object|null} region - The region object from regionManager, or null for global extraction
@@ -874,47 +876,31 @@ function extractRightPanelCandidates(region) {
 /**
  * Generic extraction for unknown regions
  */
+/**
+ * Dynamic detection: every usable, named element in the region (pageReader), whole page
+ * (navigating scrolls to each one). The role is the element's category, e.g. "button: Send".
+ */
 function extractGenericCandidates(region) {
-    const candidates = [];
-    const seen = new Set();
-    const container = region.element;
-
-    const push = (el, reason = '') => {
-        if (!el || seen.has(el)) return;
-        if (!isElementVisible(el)) return;
-        if (shouldIgnoreElement(el)) return;
-
-        const r = el.getBoundingClientRect();
-        if (r.width < 6 || r.height < 6) return;
-
-        seen.add(el);
-        candidates.push({
-            element: el,
-            features: extractFeatures(el, reason),
-        });
-    };
-
-    const standardSelectors = [
-        'button',
-        'a[href]',
-        'input',
-        'select',
-        'textarea',
-        '[role="button"]',
-        '[role="link"]',
-        '[role="menuitem"]',
-        '[role="tab"]',
-        '[role="checkbox"]',
-    ];
-
-    queryAllIn(container, standardSelectors.join(',')).forEach(el => {
-        if (isGoodLabeledTarget(el)) {
-            push(el, 'generic');
-        }
-    });
+    const candidates = findInteractiveElements(region.element).map(toDynamicCandidate);
 
     console.log(`📍 Generic (${region.id}): ${candidates.length} candidates`);
     return candidates;
+}
+
+/**
+ * Dynamic detection for click logging: usable, named elements on (or near) the screen,
+ * i.e. what the user could see when they clicked
+ */
+export function extractOnScreenCandidates() {
+    return findInteractiveElements()
+        .filter(({ element }) => isElementVisible(element))
+        .map(toDynamicCandidate);
+}
+
+function toDynamicCandidate({ element, role, name }) {
+    const features = extractFeatures(element, role);
+    features.name = name;
+    return { element, features };
 }
 
 /**

@@ -76,7 +76,7 @@ class SessionManager {
         }
     ]
 
-    async startSession(userId, sessionId, mode) {
+    async startSession(userId, sessionId, mode, detection = 'gmail-rules') {
         if (this.sessionActive) {
             throw new Error('Session already active');
         }
@@ -89,6 +89,7 @@ class SessionManager {
         this.sessionData = {
             participantId: participantId,
             mode: mode, // 'trackpad' | 'record' | 'tabtabgo' | 'tabtabgo-jev' | 'tabtabgo-jev-history'
+            detection: detection, // 'gmail-rules' | 'dynamic' (how regions/elements are found on Gmail)
             sessionId: sessionNum,
             sessionStartTs: now,
             sessionEndTs: null,
@@ -575,6 +576,7 @@ class SessionManager {
         const cleanData = {
             participantId: this.sessionData.participantId,
             mode: this.sessionData.mode,
+            detection: this.sessionData.detection ?? 'gmail-rules',
             sessionId: this.sessionData.sessionId,
             sessionStartTs: this.sessionData.sessionStartTs,
             sessionEndTs: this.sessionData.sessionEndTs,

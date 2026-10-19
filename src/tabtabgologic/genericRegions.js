@@ -1,6 +1,8 @@
 // genericRegions.js - Finds and names the parts of any web page from the page's own structure
 // (ARIA landmarks and semantic HTML), with a layout-based fallback for clickable elements
-// that aren't inside any landmark. Used on every site except Gmail, which has curated regions.
+// that aren't inside any landmark. Used on every site, and on Gmail when Detection is "Dynamic".
+
+import { findInteractiveElements, isVisible, nameOf, OWN_UI_SELECTOR } from './pageReader.js';
 
 /* ========= PAGE LABELS (shared with regionManager.js) ========= */
 
@@ -68,18 +70,15 @@ const REGION_TYPES = [
 ];
 
 const AREA_TYPE = { type: 'area', name: 'Area', icon: '▫️' };
+const SIDE_BOX_TYPE = { type: 'sidebox', name: 'Side Box', icon: '🗂️' };
+
+// A box floated beside the text (e.g. a Wikipedia infobox) becomes its own region if it has
+// at least this many elements and is narrower than this share of the window
+const MIN_SIDE_BOX_ELEMENTS = 5;
+const MAX_SIDE_BOX_WIDTH_RATIO = 0.5;
 
 // <header>/<footer> only count as page header/footer outside these (per the HTML-ARIA mapping)
 const SECTIONING_SELECTOR = 'article, aside, main, nav, section, [role="main"], [role="complementary"], [role="navigation"], [role="region"]';
-
-// Same element types the generic candidate extractor offers, so counts match what gets navigated
-const INTERACTIVE_SELECTOR = 'button, a[href], input, select, textarea, ' +
-    '[role="button"], [role="link"], [role="menuitem"], [role="tab"], [role="checkbox"]';
-
-const OWN_UI_SELECTOR = '#tabtabgo-region-overlay, #tabtabgo-region-popup, #task-notification, [id^="smarttab-"]';
-
-// Matches the candidate extractor's viewport margin
-const VIEWPORT_MARGIN_PX = 80;
 
 // A nested landmark becomes its own region if it has at least this many elements and
 // either its parent region is large or it is a type people look for directly
@@ -94,26 +93,16 @@ const MAX_PARTITION_DEPTH = 30;
 const SUMMARY_ITEMS = 4;
 const SUMMARY_ITEM_MAX_CHARS = 24;
 
-function isOnScreen(element) {
-    if (element.closest('[aria-hidden="true"], [inert]')) return false;
-
-    const rect = element.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return false;
-
-    const inViewport =
-        rect.bottom >= -VIEWPORT_MARGIN_PX &&
-        rect.right >= -VIEWPORT_MARGIN_PX &&
-        rect.top <= window.innerHeight + VIEWPORT_MARGIN_PX &&
-        rect.left <= window.innerWidth + VIEWPORT_MARGIN_PX;
-    if (!inViewport) return false;
-
-    const style = window.getComputedStyle(element);
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+function isInViewport(rect) {
+    return rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
 }
 
+/**
+ * The same elements the generic candidate extractor offers (pageReader), so counts match what gets navigated.
+ * Not limited to the screen: navigating to an element scrolls it into view.
+ */
 function collectInteractiveElements() {
-    return Array.from(document.querySelectorAll(INTERACTIVE_SELECTOR))
-        .filter(el => !el.closest(OWN_UI_SELECTOR) && isOnScreen(el));
+    return findInteractiveElements().map(item => item.element);
 }
 
 /**
@@ -135,7 +124,7 @@ function collectLandmarks(interactive) {
             if (!hasMatchingRole(element, regionType)) continue;
             if (regionType.pageLevelTag && !element.hasAttribute('role') &&
                 element.parentElement?.closest(SECTIONING_SELECTOR)) continue;
-            if (!isOnScreen(element)) continue;
+            if (!isVisible(element)) continue;
 
             const owned = interactive.filter(el => element.contains(el));
             if (owned.length === 0) continue;
@@ -146,6 +135,51 @@ function collectLandmarks(interactive) {
     }
 
     return landmarks;
+}
+
+/**
+ * Boxes floated beside the text flow. In the page's HTML they often come before the
+ * text they sit next to, so without this their links would be offered first.
+ */
+function collectSideBoxes(interactive, landmarks) {
+    const floatCache = new Map();
+    const isFloated = node => {
+        if (!floatCache.has(node)) {
+            const float = window.getComputedStyle(node).float;
+            floatCache.set(node, float === 'left' || float === 'right');
+        }
+        return floatCache.get(node);
+    };
+
+    const owned = new Map();
+    for (const el of interactive) {
+        for (let node = el.parentElement; node && node !== document.body; node = node.parentElement) {
+            if (isFloated(node)) {
+                if (!owned.has(node)) owned.set(node, []);
+                owned.get(node).push(el);
+                break;
+            }
+        }
+    }
+
+    const boxes = [];
+    for (const [element, elements] of owned) {
+        if (elements.length < MIN_SIDE_BOX_ELEMENTS) continue;
+        if (element.getBoundingClientRect().width > window.innerWidth * MAX_SIDE_BOX_WIDTH_RATIO) continue;
+        // A floated layout column that holds whole landmarks is page layout, not a side box
+        if (landmarks.some(l => l.element === element || element.contains(l.element))) continue;
+        boxes.push({ element, regionType: SIDE_BOX_TYPE, owned: elements });
+    }
+    return boxes;
+}
+
+/**
+ * Title of a side box: its caption or first header cell (infoboxes have no headings)
+ */
+function boxTitle(element) {
+    const title = element.querySelector('caption, th, [role="columnheader"], [role="heading"]');
+    // innerText: visible text only (textContent would include embedded <style> rules)
+    return title ? cleanLabel(title.innerText) : '';
 }
 
 function isModal(element) {
@@ -272,9 +306,7 @@ function positionName(bounds) {
 }
 
 function elementLabel(el) {
-    const text = el.getAttribute('aria-label') || el.textContent || el.getAttribute('title') ||
-        el.getAttribute('placeholder') || el.value || '';
-    const clean = text.replace(/\s+/g, ' ').trim();
+    const clean = nameOf(el);
     return clean.length > SUMMARY_ITEM_MAX_CHARS ? `${clean.slice(0, SUMMARY_ITEM_MAX_CHARS - 1)}…` : clean;
 }
 
@@ -307,6 +339,9 @@ function nameRegion(region) {
     let description;
     if (isArea) {
         name = explicitLabel || heading || `${positionName(region.bounds)} Area`;
+        description = summary;
+    } else if (region.regionType === SIDE_BOX_TYPE) {
+        name = explicitLabel || heading || boxTitle(region.element) || SIDE_BOX_TYPE.name;
         description = summary;
     } else {
         name = explicitLabel || region.regionType.name;
@@ -350,6 +385,7 @@ export function detectGenericRegions() {
     if (interactive.length === 0) return [];
 
     let landmarks = collectLandmarks(interactive);
+    landmarks = landmarks.concat(collectSideBoxes(interactive, landmarks));
 
     // A modal dialog blocks the rest of the page, so only its parts are offered
     const modal = landmarks.find(l => l.regionType.type === 'dialog' && isModal(l.element));
@@ -376,7 +412,11 @@ export function detectGenericRegions() {
         region.bounds = region.element.getBoundingClientRect();
     }
 
-    const regions = found.filter(r => r.elements.length > 0);
+    // Offer the regions the user can see (all of a region's elements stay reachable, scrolling to each).
+    // Otherwise every navigation box at the bottom of a long article would be its own entry in the list.
+    const withElements = found.filter(r => r.elements.length > 0);
+    const visible = withElements.filter(r => isInViewport(r.bounds));
+    const regions = visible.length > 0 ? visible : withElements;
     regions.forEach(nameRegion);
     disambiguateNames(regions);
 

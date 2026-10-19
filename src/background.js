@@ -32,7 +32,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     (async () => {
         try {
             if (request.action === 'startSession') {
-                console.log('▶️ Starting session:', request.participantId, request.sessionId, request.mode);
+                console.log('▶️ Starting session:', request.participantId, request.sessionId, request.mode, request.detection);
 
                 // Store the current tab as the session tab
                 const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -45,7 +45,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 console.log('📌 Session will run on tab:', sessionTabId);
 
                 // Start a new session
-                const sessionData = await sessionManager.startSession(request.participantId, request.sessionId, request.mode);
+                const sessionData = await sessionManager.startSession(request.participantId, request.sessionId, request.mode, request.detection);
 
                 // Store session tab ID
                 await chrome.storage.local.set({ sessionTabId: sessionTabId });

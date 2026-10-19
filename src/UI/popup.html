@@ -257,6 +257,15 @@
   </div>
 
   <div style="margin-bottom: 12px;">
+    <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Detection</label>
+    <select id="detection-select" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; background: white; cursor: pointer;">
+      <option value="gmail-rules">Gmail rules</option>
+      <option value="dynamic">Dynamic (roles, labels, page structure)</option>
+    </select>
+    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">How regions and elements are found on Gmail. Other sites always use Dynamic.</div>
+  </div>
+
+  <div style="margin-bottom: 12px;">
     <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Jev API Key</label>
     <div style="display: flex; gap: 6px;">
       <input type="password" id="jev-key-input" placeholder="Paste key from console.typesafe.ai" autocomplete="off" style="flex: 1; min-width: 0; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
@@ -281,6 +290,7 @@
     <div style="font-size: 11px; color: #065f46;">
       <div>User: <strong id="session-user-id"></strong></div>
       <div>Mode: <strong id="session-mode"></strong></div>
+      <div>Detection: <strong id="session-detection"></strong></div>
       <div>Interactions: <strong id="session-interactions">0</strong></div>
     </div>
   </div>
