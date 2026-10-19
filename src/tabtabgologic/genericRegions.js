@@ -24,8 +24,11 @@ export function cleanLabel(text) {
  * includeHeadings) its first heading. Headings that belong to a nested area
  * are skipped, e.g. the search box's "Search" heading inside a header.
  */
-export function getPageLabel(element, includeHeadings = true, nestedSelector = LANDMARK_SELECTOR) {
+export function getPageLabel(element, includeHeadings = true, nestedSelector = LANDMARK_SELECTOR, visibleText = false) {
     if (!element || !element.getAttribute) return '';
+    // visibleText: visible text with its parts spaced ("Gmail Search mail", not "GmailSearch mail");
+    // textContent is kept for the Gmail rules so their region names stay as they were
+    const textOf = el => (visibleText ? spacedVisibleText(el) : el.textContent) || '';
 
     const ariaLabel = cleanLabel(element.getAttribute('aria-label'));
     if (ariaLabel) return ariaLabel;
@@ -33,7 +36,7 @@ export function getPageLabel(element, includeHeadings = true, nestedSelector = L
     const labelledBy = element.getAttribute('aria-labelledby');
     if (labelledBy) {
         const text = cleanLabel(labelledBy.split(/\s+/)
-            .map(id => document.getElementById(id)?.textContent || '')
+            .map(id => { const el = document.getElementById(id); return el ? textOf(el) : ''; })
             .join(' '));
         if (text) return text;
     }
@@ -44,11 +47,29 @@ export function getPageLabel(element, includeHeadings = true, nestedSelector = L
         const owner = heading.closest(nestedSelector);
         if (owner && owner !== element && element.contains(owner)) continue;
 
-        const text = cleanLabel(heading.textContent);
+        const text = cleanLabel(textOf(heading));
         if (text) return text;
     }
 
     return '';
+}
+
+/**
+ * The visible text of an element, its separate pieces joined with spaces. (innerText only adds breaks
+ * between block elements, so side-by-side pieces like a header's "Gmail" and "Search" run together.)
+ */
+function spacedVisibleText(element) {
+    const parts = [];
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const parent = node.parentElement;
+        if (!parent || parent.closest('style, script, [aria-hidden="true"]')) continue;
+        if (parent.checkVisibility && !parent.checkVisibility()) continue;
+        const text = node.textContent.trim();
+        if (text) parts.push(text);
+        if (parts.join(' ').length > PAGE_LABEL_MAX_CHARS) break;
+    }
+    return parts.join(' ');
 }
 
 /* ========= REGION DETECTION ========= */
@@ -88,6 +109,9 @@ const ALWAYS_SEPARATE_TYPES = new Set(['dialog', 'search', 'navigation', 'form',
 
 // Layout fallback: areas with more elements than this are split along the DOM tree
 const MAX_AREA_ELEMENTS = 40;
+// ...and an area covering more than this share of the screen is split too, however few elements it has
+// (a few unmarked elements far apart, e.g. hidden "skip" links and a sidebar, would make one page-wide box)
+const MAX_AREA_SCREEN_SHARE = 0.5;
 const MAX_PARTITION_DEPTH = 30;
 
 const SUMMARY_ITEMS = 4;
@@ -244,6 +268,37 @@ function directChildContaining(node, element) {
  * a subtree with few enough elements becomes one area, larger ones are split by
  * child. Elements in tiny groups stay with the parent node, so none are lost.
  */
+function coversMostOfScreen(rect) {
+    return rect.width * rect.height > window.innerWidth * window.innerHeight * MAX_AREA_SCREEN_SHARE;
+}
+
+/**
+ * The box around a set of elements. Measured on the elements themselves: a container's own box can be
+ * much smaller than what it shows (Gmail positions most of its page inside small containers).
+ */
+function boundsOf(elements) {
+    const rects = elements.map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.height > 0);
+    if (rects.length === 0) return new DOMRect(0, 0, 0, 0);
+    const left = Math.min(...rects.map(r => r.left));
+    const top = Math.min(...rects.map(r => r.top));
+    return new DOMRect(left, top,
+        Math.max(...rects.map(r => r.right)) - left,
+        Math.max(...rects.map(r => r.bottom)) - top);
+}
+
+/**
+ * The closest container of a lone element that doesn't span (nearly) the whole screen, so its
+ * area is drawn and named locally (not after, say, the page header's heading)
+ */
+function localContainer(element, top) {
+    let container = element;
+    while (container !== top && container.parentElement &&
+           !coversMostOfScreen(container.parentElement.getBoundingClientRect())) {
+        container = container.parentElement;
+    }
+    return container;
+}
+
 function partitionLayout(node, elements, out, depth = 0) {
     if (depth >= MAX_PARTITION_DEPTH) {
         out.push({ element: node, regionType: AREA_TYPE });
@@ -261,29 +316,35 @@ function partitionLayout(node, elements, out, depth = 0) {
     if (groups.size === 1) {
         const [[child, childElements]] = groups;
         if (child === childElements[0]) {
-            out.push({ element: node, regionType: AREA_TYPE });
+            out.push({ element: localContainer(child, node), regionType: AREA_TYPE });
         } else {
             partitionLayout(child, childElements, out, depth + 1);
         }
         return;
     }
 
-    if (elements.length <= MAX_AREA_ELEMENTS) {
+    if (elements.length <= MAX_AREA_ELEMENTS && !coversMostOfScreen(boundsOf(elements))) {
         out.push({ element: node, regionType: AREA_TYPE });
         return;
     }
 
-    let leftover = 0;
+    const leftover = [];
     for (const [child, childElements] of groups) {
         if (childElements.length >= MIN_CHILD_ELEMENTS && child !== childElements[0]) {
             partitionLayout(child, childElements, out, depth + 1);
         } else {
-            leftover += childElements.length;
+            leftover.push(childElements[0]);
         }
     }
 
-    if (leftover > 0) {
-        out.push({ element: node, regionType: AREA_TYPE });
+    // Elements in tiny groups stay together in this node's area, unless they lie far apart:
+    // then each gets a local area, so no box spans the entire page
+    if (leftover.length > 0) {
+        if (coversMostOfScreen(boundsOf(leftover))) {
+            leftover.forEach(el => out.push({ element: localContainer(el, node), regionType: AREA_TYPE }));
+        } else {
+            out.push({ element: node, regionType: AREA_TYPE });
+        }
     }
 }
 
@@ -298,6 +359,10 @@ function positionName(bounds) {
         if (bounds.top >= vh * 0.7) return 'Bottom';
         return 'Center';
     }
+
+    // A strip along the top or bottom edge (e.g. a header bar's buttons), whatever its width
+    if (bounds.bottom <= vh * 0.15) return 'Top';
+    if (bounds.top >= vh * 0.85) return 'Bottom';
 
     const centerX = bounds.left + bounds.width / 2;
     if (centerX < vw * 0.33) return 'Left';
@@ -330,8 +395,8 @@ function summarizeElements(elements) {
  * Description: the heading (if not used as the name) and what's inside.
  */
 function nameRegion(region) {
-    const explicitLabel = getPageLabel(region.element, false, GENERIC_LANDMARK_SELECTOR);
-    const heading = explicitLabel ? '' : getPageLabel(region.element, true, GENERIC_LANDMARK_SELECTOR);
+    const explicitLabel = getPageLabel(region.element, false, GENERIC_LANDMARK_SELECTOR, true);
+    const heading = explicitLabel ? '' : getPageLabel(region.element, true, GENERIC_LANDMARK_SELECTOR, true);
     const summary = summarizeElements(region.elements);
     const isArea = region.regionType === AREA_TYPE;
 
@@ -409,7 +474,8 @@ export function detectGenericRegions() {
         region.elements = interactive.filter(el =>
             region.element.contains(el) && !region.excludeElements.some(ex => ex.contains(el))
         );
-        region.bounds = region.element.getBoundingClientRect();
+        // Layout areas are drawn around their elements (their container's box can be misleading)
+        region.bounds = region.regionType === AREA_TYPE ? boundsOf(region.elements) : region.element.getBoundingClientRect();
     }
 
     // Offer the regions the user can see (all of a region's elements stay reachable, scrolling to each).
@@ -437,6 +503,7 @@ export function detectGenericRegions() {
         element: region.element,
         priority: i,
         interactiveCount: region.elements.length,
+        boundsElements: region.regionType === AREA_TYPE ? region.elements : null,
         bounds: region.bounds,
         excludeElements: region.excludeElements
     }));

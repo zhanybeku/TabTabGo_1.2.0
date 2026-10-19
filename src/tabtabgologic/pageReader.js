@@ -122,7 +122,25 @@ export function isVisible(el) {
     if (rect.width <= 0 || rect.height <= 0) return false;
 
     const style = window.getComputedStyle(el);
-    return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+    if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+
+    return !isMovedOffPage(el);
+}
+
+/**
+ * Moved off the page on purpose, like "skip to content" links meant only for screen readers: the element,
+ * or a positioned (absolute/fixed) container around it, lies entirely left of or above the page, where no
+ * scrolling reaches it. Rows scrolled out of an inner list aren't affected: their list still reaches onto the page.
+ */
+function isMovedOffPage(el) {
+    for (let node = el; node && node !== document.body; node = node.parentElement) {
+        const rect = node.getBoundingClientRect();
+        const offPage = rect.right + window.scrollX <= 0 || rect.bottom + window.scrollY <= 0;
+        if (!offPage && rect.width > 0 && rect.height > 0) return false;
+        const position = window.getComputedStyle(node).position;
+        if (offPage && (position === 'absolute' || position === 'fixed')) return true;
+    }
+    return false;
 }
 
 /**

@@ -160,6 +160,17 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     function updateRegionBounds(region) {
         // Combined Gmail regions are detached wrappers (not in the page), so they keep their detected bounds
         if (!region.element || !region.element.isConnected) return;
+        // Layout areas (Dynamic detection) are drawn around their elements
+        if (region.boundsElements && region.boundsElements.length > 0) {
+            const rects = region.boundsElements.map(el => el.getBoundingClientRect()).filter(r => r.width > 0);
+            if (rects.length > 0) {
+                const left = Math.min(...rects.map(r => r.left));
+                const top = Math.min(...rects.map(r => r.top));
+                region.bounds = new DOMRect(left, top,
+                    Math.max(...rects.map(r => r.right)) - left, Math.max(...rects.map(r => r.bottom)) - top);
+                return;
+            }
+        }
         region.bounds = region.element.getBoundingClientRect();
     }
 
