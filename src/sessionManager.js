@@ -88,7 +88,7 @@ class SessionManager {
 
         this.sessionData = {
             participantId: participantId,
-            mode: mode, // 'trackpad' | 'record' | 'tabtabgo' | 'tabtabgo-jev' | 'tabtabgo-jev-history'
+            mode: mode, // 'trackpad' | 'record' | 'tabtabgo' | 'tabtabgo-jev-h0' | 'tabtabgo-jev-h5'
             detection: detection, // 'gmail-rules' | 'dynamic' (how regions/elements are found on Gmail)
             sessionId: sessionNum,
             sessionStartTs: now,

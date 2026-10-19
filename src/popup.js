@@ -8,8 +8,11 @@
     'trackpad': 'Trackpad',
     'record': 'Free recording',
     'tabtabgo': 'TabTabGo',
-    'tabtabgo-jev': 'TabTabGo + Jev',
-    'tabtabgo-jev-history': 'TabTabGo + Jev + History'
+    'tabtabgo-jev-h0': 'TabTabGo + Jev (no history)',
+    'tabtabgo-jev-h5': 'TabTabGo + Jev (last 5 actions)',
+    // Earlier versions of the Jev modes (kept so old sessions still show a name)
+    'tabtabgo-jev': 'TabTabGo + Jev (old: last 5 selections)',
+    'tabtabgo-jev-history': 'TabTabGo + Jev + History (old)'
   };
 
   const DETECTION_LABELS = {

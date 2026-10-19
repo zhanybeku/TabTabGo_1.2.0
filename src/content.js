@@ -66,11 +66,11 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     const LASSO_GLOW_WIDTH = 6;
     const MAX_TOP_BUTTONS = 35;
     const DETECTION_VALID_MS = 1500;
-    const JEV_MODE = 'tabtabgo-jev';
-    const JEV_HISTORY_MODE = 'tabtabgo-jev-history'; // same as JEV_MODE + this session's past interactions
+    const JEV_NO_HISTORY_MODE = 'tabtabgo-jev-h0'; // Jev gets the page description and the options only
+    const JEV_HISTORY_MODE = 'tabtabgo-jev-h5';    // the same, plus the session's last JEV_HISTORY_MAX actions
     const JEV_MAX_OPTIONS = 40;
     const JEV_LABEL_MAX_CHARS = 80;
-    const JEV_HISTORY_MAX = 20;
+    const JEV_HISTORY_MAX = 5;
     const CLICK_NEAR_MAX_DEPTH = 3; // how far up from a click that missed every candidate to look for one
     const RECORD_MODE = 'record'; // free recording: mouse only, no task targets (data for the click-prediction tables)
 
@@ -290,7 +290,7 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     /* ========= JEV PREDICTION ========= */
 
     function isJevMode() {
-        return currentSessionMode === JEV_MODE || currentSessionMode === JEV_HISTORY_MODE;
+        return currentSessionMode === JEV_NO_HISTORY_MODE || currentSessionMode === JEV_HISTORY_MODE;
     }
 
     /**
@@ -301,8 +301,9 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     }
 
     /**
-     * State sent to Jev. Both Jev modes send the same description; the history mode
-     * adds this session's past interactions, so history is the only difference between them.
+     * State sent to Jev. Both Jev modes send the same description; the history mode adds the
+     * session's last JEV_HISTORY_MAX actions, so history is the only difference between them
+     * (the same two conditions as analysis/jev_replay.py, history 0 and 5).
      * @returns {Promise<{state: string|Object, historyCount: number|null}>}
      */
     async function buildJevRequestState(question) {
@@ -331,7 +332,10 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             const { currentSession, currentTask } = await chrome.storage.local.get(['currentSession', 'currentTask']);
 
             const toEntry = (click, during) => ({
-                element: (click.elementText || '').replace(/\s+/g, ' ').trim().slice(0, JEV_LABEL_MAX_CHARS),
+                // The accessible name when the click context has it, else the logger's element text
+                element: (click.context?.clickedLabel || click.elementText || '')
+                    .replace(/\s+/g, ' ').trim().slice(0, JEV_LABEL_MAX_CHARS),
+                page: pageStateText(click.context?.pageState),
                 region: click.region || 'unknown',
                 input: click.TabTabGoClick ? 'keyboard' : 'mouse',
                 during: during
@@ -355,6 +359,20 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     }
 
     /**
+     * Short page state, e.g. "inbox · email open" (written like the analysis scripts' page states)
+     */
+    function pageStateText(page) {
+        if (!page) return 'unknown';
+        if (page.site !== 'gmail') {
+            return `${page.site}${page.path || ''}${page.dialogOpen ? ' · dialog' : ''}`;
+        }
+        const view = page.composeOpen && page.emailOpen ? 'email open · writing'
+            : page.composeOpen ? 'compose'
+            : page.emailOpen ? 'email open' : 'list';
+        return `${page.folder} · ${view}${page.dialogOpen && !page.composeOpen ? ' · dialog' : ''}`;
+    }
+
+    /**
      * Name of the detected region containing an element (for mouse clicks)
      */
     function regionNameFor(element) {
@@ -363,20 +381,14 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
     }
 
     /**
-     * Describe the current page for Jev, ending with the question being asked.
+     * Describe the current page for Jev, ending with the question being asked. No earlier
+     * selections: those are the history, which only the history mode sends.
      * Deliberately excludes document.title, which contains the signed-in account's email address.
      */
     function buildJevState(question) {
-        const recent = navState.focusHistory
-            .map(h => h.features.text.slice(0, JEV_LABEL_MAX_CHARS))
-            .filter(Boolean);
-
         return [
             ...describePageForJev(),
             'The user is navigating by keyboard.',
-            recent.length > 0
-                ? `Previously selected elements, oldest first: ${recent.map(t => `"${t}"`).join(', ')}.`
-                : 'No previous selections yet.',
             question
         ].filter(Boolean).join(' ');
     }
@@ -435,10 +447,18 @@ import {taskInterstitial} from "./taskInterstitial.js"; // Import task interstit
             site: 'gmail',
             folder: named && parts[1] ? `${base}/${parts[1]}` : base,
             emailOpen: parts.length > (nested ? 2 : 1),
-            composeOpen: window.location.search.includes('compose=') || hash.includes('compose='),
+            // A reply written inside an open email doesn't change the URL, but its editor is visible
+            composeOpen: window.location.search.includes('compose=') || hash.includes('compose=') || isEditorOpen(),
             // Pop-ups like the Unsubscribe confirmation (Gmail also marks the compose window as a dialog)
             dialogOpen: isDialogOpen()
         };
+    }
+
+    /**
+     * A visible editable text area (a message being written)
+     */
+    function isEditorOpen() {
+        return Array.from(document.querySelectorAll('[contenteditable="true"], [contenteditable=""]')).some(isVisible);
     }
 
     /**

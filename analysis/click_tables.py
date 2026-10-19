@@ -41,6 +41,10 @@ OVERRIDES = [
     (re.compile(r'^Back to .*'), 'Back to list'),                                 # "Back to Inbox", "Back to Sent Mail"
     (re.compile(r'^Select all .* conversations.*'), 'Select all conversations'),
     (re.compile(r'^Mark as (?:read|unread)$', re.I), 'Mark as read/unread'),      # one button, label shows its next action
+    # Attachment names are unique to one email, like subjects: keep only what the click does
+    (re.compile(r'^Preview attachment\b', re.I), 'preview-attachment'),
+    (re.compile(r'^Download attachment\b', re.I), 'download-attachment'),
+    (re.compile(r'^Add attachment to Drive\b', re.I), 'save-attachment-to-drive'),
 ]
 
 # What the logger falls back to when an element has no text: not a usable label
@@ -122,14 +126,30 @@ def action_of(click):
         if index + 1 < len(candidates) and is_star_toggle(candidates, index + 1):
             return 'open-email', how
 
-    if is_star_toggle(candidates, index):
-        return 'star-email', how
-    if index + 1 < len(candidates) and is_star_toggle(candidates, index + 1):
-        # First element of a row: the checkbox (Dynamic detection) or the whole row (Gmail rules)
-        return ('select-email' if role == 'checkbox' else 'open-email'), how
-    if index > 0 and is_star_toggle(candidates, index - 1):
-        return 'open-email', how  # the subject link
-    return clean_label(candidates[index]), how
+    return candidate_action(candidates, index, row_start_is_checkbox=(role == 'checkbox')), how
+
+
+def candidate_action(candidates, j, row_start_is_checkbox):
+    """The action of candidate j on its page, e.g. 'open-email' for an email's subject link.
+    row_start_is_checkbox: whether a row's first element is its checkbox (Dynamic detection)
+    or the whole row (Gmail rules); for the clicked element its role tells."""
+    if is_star_toggle(candidates, j):
+        return 'star-email'
+    if j + 1 < len(candidates) and is_star_toggle(candidates, j + 1):
+        return 'select-email' if row_start_is_checkbox else 'open-email'
+    if j > 0 and is_star_toggle(candidates, j - 1):
+        return 'open-email'  # the subject link
+    return clean_label(candidates[j])
+
+
+def page_actions(click):
+    """Every distinct action available on the click's page, in page order (Jev's options)"""
+    actions = []
+    for j in range(len(click['candidates'])):
+        action = candidate_action(click['candidates'], j, row_start_is_checkbox=click['detection'] == 'dynamic')
+        if action and action not in actions:
+            actions.append(action)
+    return actions
 
 
 # ---------------------------------------------------------------- page states
@@ -139,7 +159,9 @@ def state_key(page):
     if not page:
         return '(page load)'
     if page.get('site') == 'gmail':
-        if page.get('composeOpen'):
+        if page.get('composeOpen') and page.get('emailOpen'):
+            view = 'email open · writing'  # a reply inside the email, or a compose window over it
+        elif page.get('composeOpen'):
             view = 'compose'
         elif page.get('emailOpen'):
             view = 'email open'
@@ -176,6 +198,7 @@ def load_clicks(paths):
                     'index': context.get('clickedCandidateIndex'),
                     'role': context.get('clickedRole'),
                     'match': context.get('clickMatch'),
+                    'page': context.get('pageState'),
                     'state': state_key(context.get('pageState')),
                     'prev_state': state_key(context.get('prevPageState')),
                 }
