@@ -897,6 +897,14 @@ export function extractOnScreenCandidates() {
         .map(toDynamicCandidate);
 }
 
+/**
+ * Dynamic detection, whole page (on screen or not): what each element does is read from all of
+ * them, so rows below the fold are treated like the ones on screen
+ */
+export function extractPageWideCandidates() {
+    return findInteractiveElements().map(toDynamicCandidate);
+}
+
 function toDynamicCandidate({ element, role, name }) {
     const features = extractFeatures(element, role);
     features.name = name;

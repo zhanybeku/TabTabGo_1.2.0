@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TabTabGo Architecture</title>
+<style>
+  :root {
+    --ink: #1f2937;        /* text and outlines */
+    --muted: #6b7280;      /* secondary text */
+    --band: #f3f4f6;       /* the two background bands */
+    --band-line: #d1d5db;
+    --jev: #2563eb;        /* Jev */
+    --jev-fill: #eff6ff;
+    --page: #b45309;       /* the Gmail page */
+    --page-fill: #fffbeb;
+    --ext: #047857;        /* the TabTabGo extension */
+    --ext-fill: #ecfdf5;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    background: #ffffff;
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  main { max-width: 1160px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  .figure { width: 100%; overflow-x: auto; }
+  svg { width: 100%; min-width: 760px; height: auto; display: block; }
+  .note { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+  .title { font: 600 15px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--ink); }
+  .body  { font: 13px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--ink); }
+  .small { font: 12px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--muted); }
+  .band-label { font: 600 13px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--muted); letter-spacing: 0.02em; }
+  .jev-text { fill: var(--jev); }
+  .ext-label { font: 600 13px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--ext); }
+
+  /* The PDF page is the diagram's own size (1160 × 540 plus margins), so it drops into the thesis without blank space */
+  @page { size: 297mm 147mm; margin: 8mm; }
+  @media print {
+    body { padding: 0; }
+    h1, .lead, .note { display: none; }  /* the thesis caption names the figure */
+    main { max-width: none; }
+    svg { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>TabTabGo: system architecture</h1>
+  <p class="lead">Simplified overview. The detailed version is in architecture-detailed.html.</p>
+
+  <div class="figure">
+  <svg viewBox="0 0 1160 540" role="img" aria-labelledby="fig-title fig-desc">
+    <title id="fig-title">TabTabGo system architecture (overview)</title>
+    <desc id="fig-desc">While the user works in Gmail, TabTabGo finds the page's regions and elements, provides keyboard navigation and records every click. The extension's background asks Jev for a ranking of the next click and saves each session as a JSON file. Afterwards, Python scripts analyse the files and replay the clicks to Jev to measure prediction accuracy.</desc>
+
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
+      </marker>
+      <marker id="arrow-jev" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+      </marker>
+    </defs>
+
+    <!-- ===================== Bands ===================== -->
+    <rect x="15" y="15" width="1130" height="320" rx="14" fill="var(--band)" stroke="var(--band-line)"/>
+    <text class="band-label" x="35" y="40">WHILE YOU USE GMAIL</text>
+
+    <rect x="590" y="360" width="555" height="165" rx="14" fill="var(--band)" stroke="var(--band-line)"/>
+    <text class="band-label" x="610" y="385">AFTERWARDS</text>
+
+    <!-- ===================== Boxes ===================== -->
+    <!-- User -->
+    <rect x="30" y="195" width="150" height="90" rx="10" fill="#fff" stroke="#1f2937" stroke-width="1.6"/>
+    <text class="title" x="105" y="235" text-anchor="middle">User</text>
+    <text class="body" x="105" y="256" text-anchor="middle">keyboard &amp; mouse</text>
+
+    <!-- Gmail page -->
+    <rect x="250" y="50" width="270" height="70" rx="10" fill="var(--page-fill)" stroke="var(--page)" stroke-width="1.6"/>
+    <text class="title" x="385" y="80" text-anchor="middle">Gmail (web page)</text>
+    <text class="body" x="385" y="101" text-anchor="middle">buttons, links, emails</text>
+
+    <!-- The TabTabGo extension: its two parts share one outline -->
+    <rect x="232" y="135" width="626" height="190" rx="12" fill="var(--ext-fill)" stroke="var(--ext)" stroke-width="1.6"/>
+    <text class="ext-label" x="248" y="157">TabTabGo extension</text>
+
+    <!-- In the Gmail tab -->
+    <rect x="250" y="170" width="270" height="140" rx="10" fill="#fff" stroke="#1f2937" stroke-width="1.6"/>
+    <text class="title" x="385" y="198" text-anchor="middle">In the Gmail tab</text>
+    <text class="small" x="385" y="216" text-anchor="middle">content script</text>
+    <text class="body" x="275" y="244">1.  finds regions &amp; elements</text>
+    <text class="body" x="275" y="266">2.  Tab navigation</text>
+    <text class="body" x="275" y="288">3.  records every click</text>
+
+    <!-- In the background -->
+    <rect x="610" y="170" width="230" height="140" rx="10" fill="#fff" stroke="#1f2937" stroke-width="1.6"/>
+    <text class="title" x="725" y="198" text-anchor="middle">In the background</text>
+    <text class="small" x="725" y="216" text-anchor="middle">service worker</text>
+    <text class="body" x="640" y="244">•  sessions &amp; settings</text>
+    <text class="body" x="640" y="266">•  asks Jev for a ranking</text>
+    <text class="body" x="640" y="288">•  saves session files</text>
+
+    <!-- Jev -->
+    <rect x="930" y="180" width="200" height="120" rx="10" fill="var(--jev-fill)" stroke="var(--jev)" stroke-width="1.6" stroke-dasharray="7 4"/>
+    <text class="title jev-text" x="1030" y="216" text-anchor="middle">Jev</text>
+    <text class="small" x="1030" y="235" text-anchor="middle">TypeSafe API (external)</text>
+    <text class="body" x="1030" y="262" text-anchor="middle">ranks which element</text>
+    <text class="body" x="1030" y="281" text-anchor="middle">will be clicked next</text>
+
+    <!-- Session files -->
+    <rect x="610" y="405" width="230" height="95" rx="10" fill="#fff" stroke="#1f2937" stroke-width="1.6"/>
+    <text class="title" x="725" y="443" text-anchor="middle">Session files (JSON)</text>
+    <text class="body" x="725" y="465" text-anchor="middle">one per session</text>
+
+    <!-- Analysis -->
+    <rect x="930" y="400" width="200" height="105" rx="10" fill="#fff" stroke="#1f2937" stroke-width="1.6"/>
+    <text class="title" x="1030" y="428" text-anchor="middle">Analysis (Python)</text>
+    <text class="body" x="955" y="452">•  counting tables</text>
+    <text class="body" x="955" y="472">•  Jev comparison</text>
+    <text class="body" x="955" y="492">→ accuracy results</text>
+
+    <!-- ===================== Arrows ===================== -->
+    <!-- User → Gmail (mouse) -->
+    <path d="M150,195 V85 H250" fill="none" stroke="#374151" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <text class="small" x="160" y="78">mouse</text>
+
+    <!-- User → TabTabGo (keys) -->
+    <line x1="180" y1="240" x2="250" y2="240" stroke="#374151" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <text class="small" x="215" y="232" text-anchor="middle">keys</text>
+
+    <!-- TabTabGo ↔ Gmail -->
+    <line x1="385" y1="120" x2="385" y2="170" stroke="#374151" stroke-width="1.6" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text class="small" x="395" y="150">reads the page, clicks for you</text>
+
+    <!-- TabTabGo ↔ background -->
+    <line x1="520" y1="240" x2="610" y2="240" stroke="#374151" stroke-width="1.6" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text class="small" x="565" y="232" text-anchor="middle">clicks →</text>
+    <text class="small" x="565" y="262" text-anchor="middle">← ranking</text>
+
+    <!-- Background ↔ Jev -->
+    <line x1="840" y1="240" x2="930" y2="240" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="7 4" marker-start="url(#arrow-jev)" marker-end="url(#arrow-jev)"/>
+    <text class="small jev-text" x="885" y="232" text-anchor="middle">live</text>
+
+    <!-- Background → session files -->
+    <line x1="725" y1="310" x2="725" y2="405" stroke="#374151" stroke-width="1.6" marker-end="url(#arrow)"/>
+    <text class="small" x="735" y="350">export</text>
+
+    <!-- Session files → analysis -->
+    <line x1="840" y1="452" x2="930" y2="452" stroke="#374151" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+    <!-- Analysis ↔ Jev (replay) -->
+    <line x1="1030" y1="400" x2="1030" y2="300" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="7 4" marker-start="url(#arrow-jev)" marker-end="url(#arrow-jev)"/>
+    <text class="small jev-text" x="1020" y="352" text-anchor="end">replay of recorded clicks</text>
+
+    <!-- Key -->
+    <line x1="35" y1="505" x2="75" y2="505" stroke="#2563eb" stroke-width="1.6" stroke-dasharray="7 4"/>
+    <text class="small" x="85" y="509">request over the internet (to Jev)</text>
+  </svg>
+  </div>
+
+  <p class="note">To use in the thesis: File → Print → Save as PDF. The PDF page is sized to the diagram; the heading and these notes are left out.</p>
+</main>
+</body>
+</html>

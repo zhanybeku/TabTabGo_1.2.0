@@ -1,0 +1,21 @@
+﻿Level,Field,Type,Description
+Task,annotation_id,text,Unique ID of a task
+Task,website,text,Website name
+Task,domain,text,"Website domain (top-level category, e.g. Travel)"
+Task,subdomain,text,Website subdomain (finer category)
+Task,confirmed_task,text,Task description written by the annotator
+Task,action_reprs,list of text,Human-readable version of each action in the sequence
+Task,actions,list,The steps (actions) taken to complete the task
+Action (step),action_uid,text,Unique ID of a step
+Action (step),raw_html,text,Raw HTML of the page before the action
+Action (step),cleaned_html,text,Cleaned HTML of the page before the action
+Action (step),operation.op,text,"Operation type: CLICK, TYPE or SELECT"
+Action (step),operation.original_op,text,"Original operation, incl. HOVER and ENTER (mapped to CLICK)"
+Action (step),operation.value,text,"Optional value, e.g. text typed or option selected"
+Action (step),pos_candidates,list of elements,Ground-truth target element(s) of the step
+Action (step),neg_candidates,list of elements,Other candidate elements on the page (after preprocessing)
+Candidate element,tag,text,"HTML tag of the element (e.g. button, a, input)"
+Candidate element,is_original_target,true/false,Whether the element is the target the annotator labeled
+Candidate element,is_top_level_target,true/false,Whether the element is a top-level target found by the authors' algorithm
+Candidate element,backend_node_id,text,Unique ID of the element on the page
+Candidate element,attributes,text (JSON),"The element's attributes (e.g. aria-label, text, id), serialized as JSON"

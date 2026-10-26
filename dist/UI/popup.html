@@ -1,405 +1,606 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
+  <head>
+    <meta charset="UTF-8" />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
 
-    body {
-      width: 280px;
-      padding: 16px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background: white;
-    }
+      body {
+        width: 280px;
+        padding: 16px;
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+          Cantarell, sans-serif;
+        background: white;
+      }
 
-    .header {
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 2px solid #10b981;
-    }
+      .header {
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #10b981;
+      }
 
-    .title {
-      font-size: 16px;
-      font-weight: 600;
-      color: #10b981;
-      margin-bottom: 4px;
-    }
+      .title {
+        font-size: 16px;
+        font-weight: 600;
+        color: #10b981;
+        margin-bottom: 4px;
+      }
 
-    .subtitle {
-      font-size: 9px;
-      color: #666;
-      line-height: 1.4;
-      word-wrap: break-word;
-    }
+      .subtitle {
+        font-size: 9px;
+        color: #666;
+        line-height: 1.4;
+        word-wrap: break-word;
+      }
 
-    .button-group {
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
+      .button-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
 
-    button {
-      width: 100%;
-      padding: 12px;
-      background: #10b981;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 500;
-      transition: background-color 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
+      button {
+        width: 100%;
+        padding: 12px;
+        background: #10b981;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background-color 0.2s;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
 
-    button:hover {
-      background: #059669;
-    }
+      button:hover {
+        background: #059669;
+      }
 
-    button:active {
-      background: #047857;
-    }
+      button:active {
+        background: #047857;
+      }
 
-    button.secondary {
-      background: #f3f4f6;
-      color: #374151;
-    }
+      button.secondary {
+        background: #f3f4f6;
+        color: #374151;
+      }
 
-    button.secondary:hover {
-      background: #e5e7eb;
-    }
+      button.secondary:hover {
+        background: #e5e7eb;
+      }
 
-    .task-info {
-      background: #fef3c7;
-      border: 1px solid #f59e0b;
-      border-radius: 6px;
-      padding: 10px;
-      margin-bottom: 12px;
-      display: none;
-    }
+      .task-info {
+        background: #fef3c7;
+        border: 1px solid #f59e0b;
+        border-radius: 6px;
+        padding: 10px;
+        margin-bottom: 12px;
+        display: none;
+      }
 
-    .task-info.show {
-      display: block;
-    }
+      .task-info.show {
+        display: block;
+      }
 
-    .task-info-title {
-      font-size: 11px;
-      color: #92400e;
-      font-weight: 600;
-      margin-bottom: 6px;
-    }
+      .task-info-title {
+        font-size: 11px;
+        color: #92400e;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
 
-    .task-info-content {
-      font-size: 13px;
-      color: #78350f;
-      line-height: 1.4;
-    }
+      .task-info-content {
+        font-size: 13px;
+        color: #78350f;
+        line-height: 1.4;
+      }
 
-    .task-info-target {
-      font-size: 12px;
-      color: #92400e;
-      margin-top: 4px;
-      font-weight: 500;
-    }
+      /* Steps of the current task: done ones ticked, the next expected one highlighted */
+      .task-steps {
+        margin: 8px 0 0;
+        padding-left: 20px;
+        font-size: 12px;
+        line-height: 1.35;
+        color: #78350f;
+      }
 
-    /* Modal overlay */
-    .modal-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0, 0, 0, 0.5);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
+      .task-steps li {
+        margin-bottom: 4px;
+      }
 
-    .modal-overlay.show {
-      display: flex;
-    }
+      .task-steps li.done {
+        color: #a16207;
+        opacity: 0.6;
+        list-style-type: "✓  ";
+      }
 
-    .modal {
-      background: white;
-      border-radius: 8px;
-      padding: 20px;
-      max-width: 320px;
-      width: 90%;
-      max-height: 80vh;
-      overflow-y: auto;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
-    }
+      .task-steps li.next {
+        font-weight: 600;
+        background: #fde68a;
+        border-radius: 4px;
+        padding: 2px 4px;
+        margin-left: -4px;
+      }
 
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-      padding-bottom: 12px;
-      border-bottom: 2px solid #10b981;
-    }
+      .task-info-target {
+        font-size: 12px;
+        color: #92400e;
+        margin-top: 4px;
+        font-weight: 500;
+      }
 
-    .modal-title {
-      font-size: 18px;
-      font-weight: 600;
-      color: #10b981;
-    }
+      /* Modal overlay */
+      .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 1000;
+      }
 
-    .modal-close {
-      background: none;
-      border: none;
-      font-size: 24px;
-      cursor: pointer;
-      color: #666;
-      padding: 0;
-      width: 24px;
-      height: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-      transition: background-color 0.2s;
-    }
+      .modal-overlay.show {
+        display: flex;
+      }
 
-    .modal-close:hover {
-      background: #f3f4f6;
-    }
+      .modal {
+        background: white;
+        border-radius: 8px;
+        padding: 20px;
+        max-width: 320px;
+        width: 90%;
+        max-height: 80vh;
+        overflow-y: auto;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+      }
 
-    .hotkey-section {
-      margin-bottom: 16px;
-    }
+      .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid #10b981;
+      }
 
-    .hotkey-section-title {
-      font-size: 14px;
-      font-weight: 600;
-      color: #374151;
-      margin-bottom: 8px;
-    }
+      .modal-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: #10b981;
+      }
 
-    .hotkey-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 0;
-      border-bottom: 1px solid #e5e7eb;
-    }
+      .modal-close {
+        background: none;
+        border: none;
+        font-size: 24px;
+        cursor: pointer;
+        color: #666;
+        padding: 0;
+        width: 24px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: background-color 0.2s;
+      }
 
-    .hotkey-item:last-child {
-      border-bottom: none;
-    }
+      .modal-close:hover {
+        background: #f3f4f6;
+      }
 
-    .hotkey-description {
-      font-size: 13px;
-      color: #6b7280;
-    }
+      .hotkey-section {
+        margin-bottom: 16px;
+      }
 
-    .hotkey-keys {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-    }
+      .hotkey-section-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #374151;
+        margin-bottom: 8px;
+      }
 
-    .key {
-      background: #f3f4f6;
-      border: 1px solid #d1d5db;
-      border-radius: 4px;
-      padding: 4px 8px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #374151;
-      font-family: monospace;
-    }
+      .hotkey-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid #e5e7eb;
+      }
 
-    .key.plus {
-      background: none;
-      border: none;
-      padding: 4px 2px;
-      color: #9ca3af;
-    }
-  </style>
-</head>
-<body>
-<div class="header">
-  <div class="title">TabTab Go 1.2.1</div>
-  <div class="subtitle">Guirao C., Berengueres J. & Kuanysheva B. (2026). TabTab Go (v1.2.0) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo</div>
-</div>
+      .hotkey-item:last-child {
+        border-bottom: none;
+      }
 
-<!-- Session Controls -->
-<div id="session-setup" class="session-section">
-  <div style="margin-bottom: 12px;">
-    <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Participant ID</label>
-    <input type="text" id="participant-id-input" placeholder="ex: 1" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
-  </div>
+      .hotkey-description {
+        font-size: 13px;
+        color: #6b7280;
+      }
 
+      .hotkey-keys {
+        display: flex;
+        gap: 4px;
+        flex-wrap: wrap;
+      }
 
-  <div style="margin-bottom: 12px;">
-    <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Session ID</label>
-    <input type="text" id="session-id-input" placeholder="ex: 1" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
-  </div>
+      .key {
+        background: #f3f4f6;
+        border: 1px solid #d1d5db;
+        border-radius: 4px;
+        padding: 4px 8px;
+        font-size: 11px;
+        font-weight: 600;
+        color: #374151;
+        font-family: monospace;
+      }
 
-  <div style="margin-bottom: 12px;">
-    <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Mode</label>
-    <select id="mode-select" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; background: white; cursor: pointer;">
-      <option value="trackpad">Trackpad</option>
-      <option value="record">Free recording (mouse, no tasks)</option>
-      <option value="tabtabgo">TabTabGo</option>
-      <option value="tabtabgo-jev-h0">TabTabGo + Jev (no history)</option>
-      <option value="tabtabgo-jev-h5">TabTabGo + Jev (last 5 actions)</option>
-    </select>
-  </div>
-
-  <div style="margin-bottom: 12px;">
-    <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Detection</label>
-    <select id="detection-select" style="width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px; background: white; cursor: pointer;">
-      <option value="gmail-rules">Gmail rules</option>
-      <option value="dynamic">Dynamic (roles, labels, page structure)</option>
-    </select>
-    <div style="font-size: 11px; color: #6b7280; margin-top: 4px;">How regions and elements are found on Gmail. Other sites always use Dynamic.</div>
-  </div>
-
-  <div style="margin-bottom: 12px;">
-    <label style="display: block; font-size: 12px; color: #374151; margin-bottom: 4px; font-weight: 500;">Jev API Key</label>
-    <div style="display: flex; gap: 6px;">
-      <input type="password" id="jev-key-input" placeholder="Paste key from console.typesafe.ai" autocomplete="off" style="flex: 1; min-width: 0; padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 13px;">
-      <button id="jev-key-save-btn" style="width: auto; padding: 8px 12px; font-size: 12px;">Save</button>
+      .key.plus {
+        background: none;
+        border: none;
+        padding: 4px 2px;
+        color: #9ca3af;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+      <div class="title">TabTab Go 1.3.0</div>
+      <div class="subtitle">
+        Guirao C., Berengueres J. & Kuanysheva B. (2026). TabTab Go (v1.2.0)
+        [Computer software]. Nazarbayev University.
+        https://github.com/orioli/tabtabgo
+      </div>
     </div>
-    <div id="jev-key-status" style="font-size: 11px; color: #6b7280; margin-top: 4px;">Only needed for the Jev modes</div>
-  </div>
 
-  <button id="start-session-btn">
-    <span>▶️</span>
-    <span>Start Session</span>
-  </button>
-</div>
+    <!-- Session Controls -->
+    <div id="session-setup" class="session-section">
+      <div style="margin-bottom: 12px">
+        <label
+          style="
+            display: block;
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 4px;
+            font-weight: 500;
+          "
+          >Participant ID</label
+        >
+        <input
+          type="text"
+          id="participant-id-input"
+          placeholder="ex: 1"
+          style="
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 13px;
+          "
+        />
+      </div>
 
-<!-- Active Session Info -->
-<div id="session-active" class="session-section" style="display: none;">
-  <div style="background: #f0fdf4; padding: 12px; border-radius: 6px; margin-bottom: 12px; border: 1px solid #10b981;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-      <span style="font-size: 12px; color: #065f46; font-weight: 600;">🔴 Session Active</span>
-      <span id="session-duration" style="font-size: 13px; font-weight: 700; color: #10b981;">00:00</span>
-    </div>
-    <div style="font-size: 11px; color: #065f46;">
-      <div>User: <strong id="session-user-id"></strong></div>
-      <div>Mode: <strong id="session-mode"></strong></div>
-      <div>Detection: <strong id="session-detection"></strong></div>
-      <div>Interactions: <strong id="session-interactions">0</strong></div>
-    </div>
-  </div>
+      <div style="margin-bottom: 12px">
+        <label
+          style="
+            display: block;
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 4px;
+            font-weight: 500;
+          "
+          >Session ID</label
+        >
+        <input
+          type="text"
+          id="session-id-input"
+          placeholder="ex: 1"
+          style="
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 13px;
+          "
+        />
+      </div>
 
-  <!-- Current Task Info -->
-  <div id="current-task-info" class="task-info">
-    <div class="task-info-title" id="task-info-title">📋 Current Task: </div>
-    <div class="task-info-content" id="current-task-number">Task 1 of 8</div>
-    <div style="display: flex; gap: 8px; margin-top: 8px;">
-      <button id="complete-task-btn" style="flex: 1; background: #10b981; padding: 8px 12px; font-size: 12px;">
-        <span>✅</span>
-        <span>Complete</span>
+      <div style="margin-bottom: 12px">
+        <label
+          style="
+            display: block;
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 4px;
+            font-weight: 500;
+          "
+          >Mode</label
+        >
+        <select
+          id="mode-select"
+          style="
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 13px;
+            background: white;
+            cursor: pointer;
+          "
+        >
+          <option value="trackpad">Trackpad</option>
+          <option value="record">Free recording (mouse, no tasks)</option>
+          <option value="tabtabgo">TabTabGo</option>
+          <option value="tabtabgo-jev-h0">TabTabGo + Jev (no history)</option>
+          <option value="tabtabgo-jev-h5">
+            TabTabGo + Jev (last 5 actions)
+          </option>
+        </select>
+      </div>
+
+      <div style="margin-bottom: 12px">
+        <label
+          style="
+            display: block;
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 4px;
+            font-weight: 500;
+          "
+          >Detection</label
+        >
+        <select
+          id="detection-select"
+          style="
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            font-size: 13px;
+            background: white;
+            cursor: pointer;
+          "
+        >
+          <option value="gmail-rules">Gmail rules</option>
+          <option value="dynamic">
+            Dynamic (roles, labels, page structure)
+          </option>
+        </select>
+        <div style="font-size: 11px; color: #6b7280; margin-top: 4px">
+          How regions and elements are found on Gmail. Other sites always use
+          Dynamic.
+        </div>
+      </div>
+
+      <div style="margin-bottom: 12px">
+        <label
+          style="
+            display: block;
+            font-size: 12px;
+            color: #374151;
+            margin-bottom: 4px;
+            font-weight: 500;
+          "
+          >Jev API Key</label
+        >
+        <div style="display: flex; gap: 6px">
+          <input
+            type="password"
+            id="jev-key-input"
+            placeholder="Paste key from console.typesafe.ai"
+            autocomplete="off"
+            style="
+              flex: 1;
+              min-width: 0;
+              padding: 8px;
+              border: 1px solid #d1d5db;
+              border-radius: 4px;
+              font-size: 13px;
+            "
+          />
+          <button
+            id="jev-key-save-btn"
+            style="width: auto; padding: 8px 12px; font-size: 12px"
+          >
+            Save
+          </button>
+        </div>
+        <div
+          id="jev-key-status"
+          style="font-size: 11px; color: #6b7280; margin-top: 4px"
+        >
+          Only needed for the Jev modes
+        </div>
+      </div>
+
+      <button id="start-session-btn">
+        <span>▶️</span>
+        <span>Start Session</span>
       </button>
-      <button id="skip-task-btn" style="flex: 1; background: #ef4444; padding: 8px 12px; font-size: 12px;">
-        <span>⏭️</span>
-        <span>Skip</span>
-      </button>
-    </div>
-  </div>
-
-<!--  <button id="end-session-btn" style="background: #ef4444;">-->
-<!--    <span>⏹️</span>-->
-<!--    <span>End Session</span>-->
-<!--  </button>-->
-</div>
-
-<div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb;">
-  <div class="button-group">
-    <button id="howto-btn" class="secondary">
-      <span>❓</span>
-      <span>How to</span>
-    </button>
-    <button id="cite-btn" class="secondary">
-      <span>📚</span>
-      <span>Cite</span>
-    </button>
-  </div>
-</div>
-
-<!-- Modal for Citation -->
-<div id="cite-modal" class="modal-overlay">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">How to Cite</div>
-      <button class="modal-close" id="cite-modal-close-btn">×</button>
-    </div>
-    <div style="font-size: 13px; line-height: 1.6; color: #374151;">
-      <p style="margin-bottom: 12px;">Guirao C., Berengueres J. & Kuanysheva B. (2026). TabTab Go (v1.2.0) [Computer software]. Nazarbayev University.</p>
-      <p style="margin-top: 12px;">
-        <a href="https://github.com/orioli/tabtabgo" target="_blank" style="color: #10b981; text-decoration: none;">https://github.com/orioli/tabtabgo</a>
-      </p>
-    </div>
-  </div>
-</div>
-
-<!-- Modal for How to -->
-<div id="howto-modal" class="modal-overlay">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">Keyboard Shortcuts</div>
-      <button class="modal-close" id="modal-close-btn">×</button>
     </div>
 
-    <div class="hotkey-section">
-      <div class="hotkey-section-title">Navigation</div>
-      <div class="hotkey-item">
-        <span class="hotkey-description">Move forward</span>
-        <div class="hotkey-keys">
-          <span class="key">Tab</span>
-          <span class="key plus">or</span>
-          <span class="key">D</span>
+    <!-- Active Session Info -->
+    <div id="session-active" class="session-section" style="display: none">
+      <div
+        style="
+          background: #f0fdf4;
+          padding: 12px;
+          border-radius: 6px;
+          margin-bottom: 12px;
+          border: 1px solid #10b981;
+        "
+      >
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+          "
+        >
+          <span style="font-size: 12px; color: #065f46; font-weight: 600"
+            >🔴 Session Active</span
+          >
+          <span
+            id="session-duration"
+            style="font-size: 13px; font-weight: 700; color: #10b981"
+            >00:00</span
+          >
+        </div>
+        <div style="font-size: 11px; color: #065f46">
+          <div>User: <strong id="session-user-id"></strong></div>
+          <div>Mode: <strong id="session-mode"></strong></div>
+          <div>Detection: <strong id="session-detection"></strong></div>
+          <div>Interactions: <strong id="session-interactions">0</strong></div>
         </div>
       </div>
-      <div class="hotkey-item">
-        <span class="hotkey-description">Move backward</span>
-        <div class="hotkey-keys">
-          <span class="key">Shift</span>
-          <span class="key plus">+</span>
-          <span class="key">Tab</span>
-          <span class="key plus">or</span>
-          <span class="key">S</span>
+
+      <!-- Current Task Info -->
+      <div id="current-task-info" class="task-info">
+        <div class="task-info-title" id="task-info-title">📋 Current Task:</div>
+        <div class="task-info-content" id="current-task-number">
+          Task 1 of 8
+        </div>
+        <ol class="task-steps" id="current-task-steps"></ol>
+        <div style="display: flex; gap: 8px; margin-top: 8px">
+          <button
+            id="complete-task-btn"
+            style="
+              flex: 1;
+              background: #10b981;
+              padding: 8px 12px;
+              font-size: 12px;
+            "
+          >
+            <span>✅</span>
+            <span>Complete</span>
+          </button>
+          <button
+            id="skip-task-btn"
+            style="
+              flex: 1;
+              background: #ef4444;
+              padding: 8px 12px;
+              font-size: 12px;
+            "
+          >
+            <span>⏭️</span>
+            <span>Skip</span>
+          </button>
+        </div>
+      </div>
+
+      <!--  <button id="end-session-btn" style="background: #ef4444;">-->
+      <!--    <span>⏹️</span>-->
+      <!--    <span>End Session</span>-->
+      <!--  </button>-->
+    </div>
+
+    <div
+      style="margin-top: 12px; padding-top: 12px; border-top: 1px solid #e5e7eb"
+    >
+      <div class="button-group">
+        <button id="howto-btn" class="secondary">
+          <span>❓</span>
+          <span>How to</span>
+        </button>
+        <button id="cite-btn" class="secondary">
+          <span>📚</span>
+          <span>Cite</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Modal for Citation -->
+    <div id="cite-modal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">How to Cite</div>
+          <button class="modal-close" id="cite-modal-close-btn">×</button>
+        </div>
+        <div style="font-size: 13px; line-height: 1.6; color: #374151">
+          <p style="margin-bottom: 12px">
+            Guirao C., Berengueres J. & Kuanysheva B. (2026). TabTab Go (v1.2.0)
+            [Computer software]. Nazarbayev University.
+          </p>
+          <p style="margin-top: 12px">
+            <a
+              href="https://github.com/orioli/tabtabgo"
+              target="_blank"
+              style="color: #10b981; text-decoration: none"
+              >https://github.com/orioli/tabtabgo</a
+            >
+          </p>
         </div>
       </div>
     </div>
 
-    <div class="hotkey-section">
-      <div class="hotkey-section-title">Actions</div>
-      <div class="hotkey-item">
-        <span class="hotkey-description">Activate button</span>
-        <div class="hotkey-keys">
-          <span class="key">Enter</span>
-          <span class="key plus">or</span>
-          <span class="key">Space</span>
-          <span class="key plus">or</span>
-          <span class="key">W</span>
+    <!-- Modal for How to -->
+    <div id="howto-modal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">Keyboard Shortcuts</div>
+          <button class="modal-close" id="modal-close-btn">×</button>
         </div>
-      </div>
-      <div class="hotkey-item">
-        <span class="hotkey-description">Close navigation</span>
-        <div class="hotkey-keys">
-          <span class="key">ESC</span>
-          <span class="key plus">or</span>
-          <span class="key">A</span>
+
+        <div class="hotkey-section">
+          <div class="hotkey-section-title">Navigation</div>
+          <div class="hotkey-item">
+            <span class="hotkey-description">Move forward</span>
+            <div class="hotkey-keys">
+              <span class="key">Tab</span>
+              <span class="key plus">or</span>
+              <span class="key">D</span>
+            </div>
+          </div>
+          <div class="hotkey-item">
+            <span class="hotkey-description">Move backward</span>
+            <div class="hotkey-keys">
+              <span class="key">Shift</span>
+              <span class="key plus">+</span>
+              <span class="key">Tab</span>
+              <span class="key plus">or</span>
+              <span class="key">S</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="hotkey-section">
+          <div class="hotkey-section-title">Actions</div>
+          <div class="hotkey-item">
+            <span class="hotkey-description">Activate button</span>
+            <div class="hotkey-keys">
+              <span class="key">Enter</span>
+              <span class="key plus">or</span>
+              <span class="key">Space</span>
+              <span class="key plus">or</span>
+              <span class="key">W</span>
+            </div>
+          </div>
+          <div class="hotkey-item">
+            <span class="hotkey-description">Close navigation</span>
+            <div class="hotkey-keys">
+              <span class="key">ESC</span>
+              <span class="key plus">or</span>
+              <span class="key">A</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
-  </div>
-</div>
 
-<script src="../popup.js"></script>
-</body>
+    <script src="../popup.js"></script>
+  </body>
 </html>

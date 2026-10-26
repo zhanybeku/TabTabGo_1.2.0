@@ -1,0 +1,434 @@
+<!doctype html>
+<!--
+  session_viewer.html - Readable view of the session JSON files the extension exports.
+
+  Open this file in Chrome and drop one or more P*_S*_*.json files on it (or use "Open files").
+  The files are read in the browser only; nothing is uploaded.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session Viewer</title>
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --text: #1c2230;
+    --muted: #667085;
+    --line: #e3e6eb;
+    --accent: #2f5bd3;
+    --ok: #12805c;   --ok-bg: #e6f5ee;
+    --warn: #9a5800; --warn-bg: #fff3dc;
+    --bad: #b42318;  --bad-bg: #fdeceb;
+    --skip: #4b5565; --skip-bg: #eceff3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418;
+      --panel: #191d23;
+      --text: #e5e7eb;
+      --muted: #98a2b3;
+      --line: #2b313a;
+      --accent: #85a6ff;
+      --ok: #4cc38a;   --ok-bg: #11301f;
+      --warn: #f0b35a; --warn-bg: #33270e;
+      --bad: #f3786d;  --bad-bg: #3a1714;
+      --skip: #aab2c0; --skip-bg: #262b33;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    position: sticky; top: 0; z-index: 2;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    padding: 12px 24px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 { font-size: 16px; margin: 0 12px 0 0; }
+  main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+  button, select, label.file {
+    font: inherit; color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 6px 10px; cursor: pointer;
+  }
+  label.file input { display: none; }
+  .muted { color: var(--muted); }
+  .empty {
+    border: 2px dashed var(--line); border-radius: 12px;
+    padding: 64px 24px; text-align: center; color: var(--muted);
+  }
+  body.dragging .empty, body.dragging main { outline: 3px dashed var(--accent); outline-offset: -8px; }
+
+  section.card {
+    background: var(--panel);
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 16px 20px; margin-bottom: 16px;
+  }
+  .facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px 24px; }
+  .fact .k { font-size: 12px; color: var(--muted); }
+  .fact .v { font-size: 15px; font-weight: 600; }
+  .warnline { margin-top: 12px; color: var(--warn); }
+
+  .strip { display: flex; flex-wrap: wrap; gap: 8px; }
+  .strip a {
+    display: block; min-width: 92px; padding: 8px 10px;
+    border-radius: 8px; text-decoration: none; color: inherit;
+    border: 1px solid transparent;
+  }
+  .strip a:hover { border-color: var(--line); }
+  .strip .n { font-weight: 700; }
+  .strip .s { font-size: 12px; }
+
+  .ok   { background: var(--ok-bg);   color: var(--ok); }
+  .warn { background: var(--warn-bg); color: var(--warn); }
+  .bad  { background: var(--bad-bg);  color: var(--bad); }
+  .skip { background: var(--skip-bg); color: var(--skip); }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+
+  .taskhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 16px; margin-bottom: 10px; }
+  .taskhead h2 { font-size: 16px; margin: 0; }
+  .steps { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 14px; }
+  .step { padding: 4px 10px; border-radius: 6px; font-size: 13px; max-width: 340px; }
+  .step b { margin-right: 4px; }
+  .step .t { font-size: 11px; opacity: .8; margin-left: 4px; }
+
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-top: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--muted); border-top: none; white-space: nowrap; }
+  td.num { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  td.label { max-width: 280px; overflow-wrap: anywhere; }
+  tr.incorrect td, tr.extra td { color: var(--muted); }
+  tr.incorrect td.result, tr.extra td.result { color: inherit; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 12px; color: var(--muted); }
+  @media (max-width: 640px) {
+    header, main { padding-left: 16px; padding-right: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>Session Viewer</h1>
+  <label class="file">Open files<input id="files" type="file" accept=".json,application/json" multiple></label>
+  <select id="picker" hidden></select>
+  <span class="muted" id="hint">or drop session JSON files anywhere on the page</span>
+</header>
+<main id="out">
+  <div class="empty">Drop one or more session files (P*_S*_*.json) here.<br>They are read in this browser only.</div>
+</main>
+
+<script>
+"use strict";
+
+/* ========= HELPERS ========= */
+
+const MODE_NAMES = {
+  trackpad: "Trackpad",
+  record: "Free recording",
+  tabtabgo: "TabTabGo",
+  "tabtabgo-jev-h0": "TabTabGo + Jev (no history)",
+  "tabtabgo-jev-h5": "TabTabGo + Jev (history 5)",
+};
+const SYNC_MIN_HUMAN_MS = 50; // two sync clicks closer than this are one press counted twice
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+}
+
+function seconds(ms) {
+  if (ms == null) return "–";
+  return ms >= 60000
+    ? `${Math.floor(ms / 60000)}m ${String(Math.round((ms % 60000) / 1000)).padStart(2, "0")}s`
+    : `${(ms / 1000).toFixed(1)}s`;
+}
+
+// Letters and digits only, shortcut hints like "(⌘⇧D)" removed
+function simplify(text) {
+  return String(text || "").replace(/\([^)]*\)/g, "").toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+// The extension's matching is fuzzy (e.g. any draft matches any draft target). A click it accepted
+// is "loose" when neither label contains the other, e.g. "THIRD MESSAGE …" accepted for "SECOND MESSAGE …"
+function isLooseMatch(clicked, target) {
+  const a = simplify(clicked);
+  const b = simplify(target);
+  return !(a && b && (a.includes(b) || b.includes(a)));
+}
+
+function pageText(ps) {
+  if (!ps) return "";
+  if (ps.site !== "gmail") return `${ps.site}${ps.path || ""}${ps.dialogOpen ? " · dialog" : ""}`;
+  const bits = [ps.folder];
+  if (ps.emailOpen) bits.push("email open");
+  if (ps.composeOpen) bits.push("compose");
+  else if (ps.dialogOpen) bits.push("dialog"); // Gmail also marks compose windows as dialogs
+  return bits.join(" · ");
+}
+
+/* ========= ANALYSIS ========= */
+
+function taskStatus(task) {
+  const hasTargets = (task.targets || []).length > 0;
+  if (!hasTargets) return { cls: "skip", text: "Recording" };
+  if (task.endState === "completed" && !task.finalTargetReached) {
+    return { cls: "warn", text: "Marked complete, targets not reached" };
+  }
+  if (task.endState === "completed") {
+    return task.mistakesMade ? { cls: "warn", text: "Completed with errors" } : { cls: "ok", text: "Completed" };
+  }
+  if (task.endState === "skipped") return { cls: "bad", text: "Skipped" };
+  if (task.endState === "ended_wrong") return { cls: "bad", text: "Session ended" };
+  return { cls: "skip", text: task.endState || "Unknown" };
+}
+
+// Clicks that happened (absent targets are listed as steps instead), each with what it was matched to.
+// A step can also be done without a click: the participant was already on its page (e.g. the Inbox).
+function analyzeTask(task) {
+  const targets = task.targets || [];
+  const rows = task.interactions || [];
+  const clicks = rows.filter((r) => r.timestamp != null);
+  const steps = targets.map((target) => ({ target, click: null, alreadyThere: false }));
+  let next = 0;
+  for (const row of rows) {
+    if (next >= steps.length) break;
+    if (row.satisfiedWithoutClick) {
+      steps[next++].alreadyThere = true;
+    } else if (row.timestamp != null && !row.isError && row.expectedTarget != null) {
+      steps[next].click = row;
+      row._loose = isLooseMatch(row.elementText, steps[next].target);
+      next++;
+    }
+  }
+  return { clicks, steps };
+}
+
+function summarize(data) {
+  const tasks = data.tasks || [];
+  const counts = { correct: 0, loose: 0, incorrect: 0, extra: 0, absent: 0, alreadyThere: 0, recorded: 0 };
+  let tabs = 0, enters = 0, clickCount = 0;
+  for (const task of tasks) {
+    const { clicks } = analyzeTask(task);
+    clickCount += clicks.length;
+    for (const row of task.interactions || []) {
+      if (row.errorReason === "absent") counts.absent++;
+      if (row.satisfiedWithoutClick) counts.alreadyThere++;
+    }
+    for (const c of clicks) {
+      if ((task.targets || []).length === 0) counts.recorded++;
+      else if (!c.isError) c._loose ? counts.loose++ : counts.correct++;
+      else if (c.errorReason === "extra") counts.extra++;
+      else counts.incorrect++;
+    }
+    tabs += task.totalTabsRequired ?? 0;
+    enters += task.totalEntersRequired ?? 0;
+  }
+  const done = tasks.filter((t) => t.endState === "completed" && t.finalTargetReached).length;
+  return { counts, tabs, enters, done, total: tasks.length, clickCount };
+}
+
+// "4.2", or "–" when there is nothing to average over
+function average(sum, count) {
+  return count > 0 ? (sum / count).toFixed(1) : "–";
+}
+
+/* ========= RENDERING ========= */
+
+function resultBadge(click, hasTargets) {
+  if (!hasTargets) return '<span class="badge skip">recorded</span>';
+  if (!click.isError) {
+    return click._loose
+      ? '<span class="badge warn" title="Accepted by the fuzzy matching, but the labels differ">loose match</span>'
+      : '<span class="badge ok">correct</span>';
+  }
+  if (click.errorReason === "extra") return '<span class="badge bad" title="After the last target">extra</span>';
+  return '<span class="badge bad">wrong</span>';
+}
+
+function effortCell(click, isMouse) {
+  if (isMouse) {
+    return click.cursorTraveledDistancePx != null ? `${Math.round(click.cursorTraveledDistancePx)} px` : "–";
+  }
+  return `${click.tabsRequired ?? "–"} Tab · ${click.entersRequired ?? "–"} Enter`;
+}
+
+function jevCell(click) {
+  const jev = click.jev;
+  if (!jev) return "";
+  if (!jev.applied) return `<span class="muted" title="${esc(jev.error)}">no ranking</span>`;
+  const top = (jev.topActions || []).join(", ");
+  const rank = jev.clickedActionRank != null ? `#${jev.clickedActionRank}` : "not ranked";
+  return `<span title="Jev's top: ${esc(top)}">${esc(rank)} of ${esc(jev.optionCount)}</span>`;
+}
+
+function renderTask(task, index, data) {
+  const status = taskStatus(task);
+  const hasTargets = (task.targets || []).length > 0;
+  const isMouse = data.mode === "trackpad" || data.mode === "record";
+  const hasJev = (task.interactions || []).some((r) => r.jev);
+  const { clicks, steps } = analyzeTask(task);
+
+  const stepChips = steps.map((step, i) => {
+    const done = step.click || step.alreadyThere;
+    const cls = !done ? "bad" : step.click?._loose ? "warn" : "ok";
+    const mark = !done ? "✗" : "✓";
+    const when = step.click
+      ? `<span class="t">${seconds(step.click.timestamp - task.startTs)}</span>`
+      : step.alreadyThere ? '<span class="t">already there</span>' : "";
+    return `<span class="step ${cls}" title="${esc(step.target)}"><b>${i + 1}</b>${mark} ${esc(step.target)}${when}</span>`;
+  }).join("");
+
+  const rows = clicks.map((c, i) => `
+    <tr class="${c.isError ? (c.errorReason || "incorrect") : "correct"}">
+      <td class="num">${i + 1}</td>
+      <td class="num">${seconds(c.timestamp - task.startTs)}</td>
+      <td class="label">${esc(c.elementText)}</td>
+      ${hasTargets ? `<td class="label">${esc(c.expectedTarget ?? "")}</td>` : ""}
+      <td class="result">${resultBadge(c, hasTargets)}</td>
+      <td>${esc(c.region ?? "")}</td>
+      <td class="num">${effortCell(c, isMouse)}</td>
+      <td>${esc(pageText(c.context?.pageState))}</td>
+      ${hasJev ? `<td class="num">${jevCell(c)}</td>` : ""}
+    </tr>`).join("");
+
+  const effort = isMouse
+    ? ""
+    : `<span class="muted">${task.totalTabsRequired ?? 0} Tab · ${task.totalEntersRequired ?? 0} Enter</span>
+       <span class="muted">${average(task.totalTabsRequired ?? 0, clicks.length)} Tab per click</span>`;
+
+  return `
+  <section class="card" id="task-${index}">
+    <div class="taskhead">
+      <h2>T${index + 1} <span class="muted">${esc(task.taskId)}</span></h2>
+      <span class="badge ${status.cls}">${esc(status.text)}</span>
+      <span class="muted">${seconds(task.taskDuration)}</span>
+      ${effort}
+      <span class="muted">${clicks.length} click${clicks.length === 1 ? "" : "s"}</span>
+    </div>
+    ${hasTargets ? `<div class="steps">${stepChips}</div>` : ""}
+    ${clicks.length === 0 ? '<div class="muted">No clicks.</div>' : `
+    <div class="tablewrap"><table>
+      <thead><tr>
+        <th>#</th><th>Time</th><th>Clicked</th>${hasTargets ? "<th>Expected</th>" : ""}<th>Result</th>
+        <th>Region</th><th>${isMouse ? "Cursor" : "Keys"}</th><th>Page</th>${hasJev ? "<th>Jev rank</th>" : ""}
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>`}
+  </section>`;
+}
+
+function renderSession(data) {
+  const s = summarize(data);
+  const isMouse = data.mode === "trackpad" || data.mode === "record";
+  const sync = data.syncData;
+  const syncIntervals = sync ? [sync.syncInterval1to2, sync.syncInterval2to3] : [];
+  const syncWarning = syncIntervals.some((ms) => ms != null && ms < SYNC_MIN_HUMAN_MS)
+    ? `<div class="warnline">⚠ Sync clicks only ${Math.min(...syncIntervals)} ms apart: one press was probably counted twice.</div>`
+    : "";
+
+  const fact = (k, v) => `<div class="fact"><div class="k">${esc(k)}</div><div class="v">${v}</div></div>`;
+  const c = s.counts;
+  const clickFacts = (data.tasks || []).some((t) => (t.targets || []).length > 0)
+    ? fact("Clicks", `${c.correct + c.loose} correct · ${c.incorrect} wrong · ${c.extra} extra`) +
+      fact("Steps never done", c.absent) +
+      (c.alreadyThere ? fact("Steps done without a click", c.alreadyThere) : "") +
+      (c.loose ? fact("Loose matches", `<span style="color:var(--warn)">${c.loose}</span>`) : "")
+    : fact("Clicks", c.recorded);
+
+  const strip = (data.tasks || []).map((task, i) => {
+    const st = taskStatus(task);
+    return `<a class="${st.cls}" href="#task-${i}" title="${esc(st.text)}">
+      <div class="n">T${i + 1}</div><div class="s">${esc(st.text)}</div><div class="s">${seconds(task.taskDuration)}</div></a>`;
+  }).join("");
+
+  return `
+  <section class="card">
+    <div class="facts">
+      ${fact("Participant · session", `${esc(data.participantId)} · ${esc(data.sessionId)}`)}
+      ${fact("Mode", esc(MODE_NAMES[data.mode] || data.mode))}
+      ${fact("Detection", esc(data.detection ?? "gmail-rules"))}
+      ${fact("Date", esc(data.sessionDate))}
+      ${fact("Duration", seconds(data.sessionDuration))}
+      ${fact("Tasks completed", `${s.done} of ${s.total}`)}
+      ${clickFacts}
+      ${isMouse ? "" : fact("Keys", `${s.tabs} Tab · ${s.enters} Enter`)}
+      ${isMouse ? "" : fact("Tab per click (avg)", average(s.tabs, s.clickCount))}
+      ${isMouse ? "" : fact("Keys per step (as in the paper)", average(s.tabs + s.enters, c.correct + c.loose))}
+      ${sync ? fact("Sync intervals", `${syncIntervals.map((ms) => `${ms} ms`).join(" · ")}`) : ""}
+    </div>
+    ${syncWarning}
+  </section>
+  <section class="card">
+    <div class="strip">${strip}</div>
+    <div class="legend" style="margin-top:12px">
+      <span><span class="badge ok">correct</span> matched the expected step</span>
+      <span><span class="badge warn">loose match</span> accepted, but a different label (e.g. the wrong draft)</span>
+      <span><span class="badge bad">wrong</span> did not match; the task kept waiting for the same step</span>
+      <span><span class="badge ok">already there</span> step done without a click: the participant was already on its page</span>
+      <span>Time: since the task started</span>
+    </div>
+  </section>
+  ${(data.tasks || []).map((task, i) => renderTask(task, i, data)).join("")}`;
+}
+
+/* ========= PAGE ========= */
+
+const sessions = []; // {name, data}
+
+function show(index) {
+  const out = document.getElementById("out");
+  const { name, data } = sessions[index];
+  out.innerHTML = renderSession(data);
+  document.title = `${data.sessionId || name} · Session Viewer`;
+}
+
+function loadSessions(loaded) {
+  for (const item of loaded) {
+    const at = sessions.findIndex((s) => s.name === item.name);
+    if (at >= 0) sessions[at] = item;
+    else sessions.push(item);
+  }
+  const picker = document.getElementById("picker");
+  picker.innerHTML = sessions.map((s, i) => `<option value="${i}">${esc(s.name)}</option>`).join("");
+  picker.hidden = sessions.length < 2;
+  const shown = sessions.findIndex((s) => s.name === loaded[loaded.length - 1].name);
+  picker.value = String(shown);
+  show(shown);
+}
+
+async function readFiles(fileList) {
+  const loaded = [];
+  for (const file of fileList) {
+    try {
+      loaded.push({ name: file.name, data: JSON.parse(await file.text()) });
+    } catch (error) {
+      alert(`Could not read ${file.name}: ${error.message}`);
+    }
+  }
+  if (loaded.length > 0) loadSessions(loaded);
+}
+
+if (typeof document !== "undefined") {
+  document.getElementById("files").addEventListener("change", (e) => readFiles(e.target.files));
+  document.getElementById("picker").addEventListener("change", (e) => show(Number(e.target.value)));
+  window.addEventListener("dragover", (e) => { e.preventDefault(); document.body.classList.add("dragging"); });
+  window.addEventListener("dragleave", (e) => {
+    if (!e.relatedTarget) document.body.classList.remove("dragging");
+  });
+  window.addEventListener("drop", (e) => {
+    e.preventDefault();
+    document.body.classList.remove("dragging");
+    readFiles(e.dataTransfer.files);
+  });
+}
+</script>
+</body>
+</html>

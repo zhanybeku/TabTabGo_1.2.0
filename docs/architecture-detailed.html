@@ -1,0 +1,271 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TabTabGo Architecture</title>
+<style>
+  :root {
+    --ink: #1f2937;        /* text and main outlines */
+    --muted: #6b7280;      /* secondary text */
+    --line: #374151;       /* arrows */
+    --frame: #9ca3af;      /* container outlines */
+    --frame-fill: #f3f4f6; /* containers */
+    --box-fill: #ffffff;
+    --soft-fill: #f9fafb;
+    --jev: #2563eb;        /* everything that involves Jev */
+    --jev-fill: #eff6ff;
+    --page: #b45309;       /* the Gmail page itself */
+    --page-fill: #fffbeb;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    background: #ffffff;
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  }
+  main { max-width: 1280px; margin: 0 auto; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lead { margin: 0 0 16px; color: var(--muted); font-size: 14px; }
+  .figure { width: 100%; overflow-x: auto; }
+  svg { width: 100%; min-width: 900px; height: auto; display: block; }
+  .note { margin-top: 12px; font-size: 13px; color: var(--muted); }
+
+  /* SVG text */
+  .title { font: 600 13px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--ink); }
+  .body  { font: 11px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--ink); }
+  .small { font: 10px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--muted); }
+  .frame-label { font: 600 13px system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: var(--muted); }
+  .code  { font: 600 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: var(--ink); }
+  .jev-text { fill: var(--jev); }
+
+  @page { size: A4 landscape; margin: 10mm; }
+  @media print {
+    body { padding: 0; }
+    .lead, .note { display: none; }
+    h1 { font-size: 14pt; }
+    svg { min-width: 0; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>TabTabGo: system architecture</h1>
+  <p class="lead">The Chrome extension (left and middle), the external Jev service (right), and the offline analysis of recorded sessions (bottom).</p>
+
+  <div class="figure">
+  <svg viewBox="0 0 1280 830" role="img" aria-labelledby="fig-title fig-desc">
+    <title id="fig-title">TabTabGo system architecture</title>
+    <desc id="fig-desc">The user works in a Gmail tab. A content script detects regions and elements, provides keyboard navigation, optionally orders it with Jev, and logs every click. The extension's popup and background service worker manage sessions, call the Jev API and export session JSON files, which Python scripts turn into prediction tables and accuracy results.</desc>
+
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#374151"/>
+      </marker>
+      <marker id="arrow-jev" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M0,0 L10,5 L0,10 z" fill="#2563eb"/>
+      </marker>
+    </defs>
+
+    <!-- ===================== Gmail tab ===================== -->
+    <rect x="160" y="60" width="600" height="550" rx="14" fill="var(--frame-fill)" stroke="var(--frame)" stroke-width="1.2"/>
+    <text class="frame-label" x="176" y="82">Gmail tab (Chrome)</text>
+
+    <!-- Gmail page -->
+    <rect x="180" y="95" width="560" height="60" rx="8" fill="var(--page-fill)" stroke="var(--page)" stroke-width="1.4"/>
+    <text class="title" x="460" y="120" text-anchor="middle">Gmail web page (DOM)</text>
+    <text class="body" x="460" y="139" text-anchor="middle">elements with ARIA roles, labels and page structure</text>
+
+    <!-- Gmail page ↔ content script -->
+    <line x1="460" y1="155" x2="460" y2="195" stroke="#374151" stroke-width="1.4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text class="small" x="470" y="180">reads elements · activates them · observes clicks</text>
+
+    <!-- Content script -->
+    <rect x="180" y="195" width="560" height="395" rx="10" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="196" y="217">Content script (TabTabGo logic)</text>
+
+    <!-- Detection -->
+    <rect x="200" y="230" width="520" height="125" rx="8" fill="var(--soft-fill)" stroke="var(--frame)" stroke-width="1.2"/>
+    <text class="title" x="216" y="250">Region &amp; element detection</text>
+    <text class="small" x="704" y="250" text-anchor="end">chosen by the Detection setting</text>
+
+    <rect x="216" y="262" width="240" height="80" rx="6" fill="#fff" stroke="#6b7280" stroke-width="1.2"/>
+    <text class="title" x="336" y="285" text-anchor="middle">Gmail rules</text>
+    <text class="body" x="336" y="304" text-anchor="middle">fixed region list, Gmail selectors</text>
+    <text class="body" x="336" y="321" text-anchor="middle">+ geometry fallback</text>
+
+    <rect x="464" y="262" width="240" height="80" rx="6" fill="#fff" stroke="#6b7280" stroke-width="1.2"/>
+    <text class="title" x="584" y="285" text-anchor="middle">Dynamic</text>
+    <text class="body" x="584" y="304" text-anchor="middle">page reader: ARIA roles &amp; names</text>
+    <text class="body" x="584" y="321" text-anchor="middle">landmarks + layout fallback</text>
+
+    <!-- Detection → navigation / Jev -->
+    <line x1="320" y1="355" x2="320" y2="390" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="327" y="377">candidates</text>
+    <line x1="600" y1="355" x2="600" y2="390" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arrow-jev)"/>
+    <text class="small" x="607" y="377">options</text>
+
+    <!-- Navigation -->
+    <rect x="200" y="390" width="240" height="80" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="320" y="412" text-anchor="middle">Keyboard navigation</text>
+    <text class="body" x="320" y="431" text-anchor="middle">Tab: region → element</text>
+    <text class="body" x="320" y="448" text-anchor="middle">Enter activates · lasso overlay</text>
+
+    <!-- Jev ranking -->
+    <rect x="480" y="390" width="240" height="80" rx="8" fill="var(--jev-fill)" stroke="var(--jev)" stroke-width="1.5"/>
+    <text class="title jev-text" x="600" y="412" text-anchor="middle">Jev ranking (Jev modes)</text>
+    <text class="body" x="600" y="431" text-anchor="middle">orders regions and elements</text>
+    <text class="body" x="600" y="448" text-anchor="middle">history: none / last 5 clicks</text>
+
+    <!-- Jev ranking → navigation -->
+    <line x1="480" y1="430" x2="440" y2="430" stroke="#2563eb" stroke-width="1.4" marker-end="url(#arrow-jev)"/>
+    <text class="small" x="460" y="423" text-anchor="middle">order</text>
+
+    <!-- Navigation → logging -->
+    <line x1="320" y1="470" x2="320" y2="505" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="327" y="491">selections</text>
+
+    <!-- Click logging -->
+    <rect x="200" y="505" width="520" height="70" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="460" y="527" text-anchor="middle">Click logging (every mode)</text>
+    <text class="body" x="460" y="545" text-anchor="middle">page state + previous page · on-screen candidate labels</text>
+    <text class="body" x="460" y="562" text-anchor="middle">clicked element &amp; role · Tab/Enter counts · cursor distance</text>
+
+    <!-- ===================== Extension ===================== -->
+    <rect x="830" y="60" width="270" height="550" rx="14" fill="var(--frame-fill)" stroke="var(--frame)" stroke-width="1.2"/>
+    <text class="frame-label" x="846" y="82">Chrome extension</text>
+
+    <!-- Popup -->
+    <rect x="850" y="95" width="230" height="105" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="965" y="116" text-anchor="middle">Popup</text>
+    <text class="body" x="965" y="134" text-anchor="middle">start / complete session</text>
+    <text class="body" x="965" y="151" text-anchor="middle">Detection: Gmail rules / Dynamic</text>
+    <text class="body" x="965" y="168" text-anchor="middle">modes: Trackpad · Free recording ·</text>
+    <text class="body" x="965" y="185" text-anchor="middle">TabTabGo · TabTabGo + Jev</text>
+
+    <!-- Popup → background -->
+    <line x1="965" y1="200" x2="965" y2="225" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="975" y="216">start, complete</text>
+
+    <!-- Background service worker -->
+    <rect x="850" y="225" width="230" height="235" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="965" y="246" text-anchor="middle">Background service worker</text>
+
+    <rect x="866" y="258" width="198" height="85" rx="6" fill="var(--jev-fill)" stroke="var(--jev)" stroke-width="1.2"/>
+    <text class="title jev-text" x="965" y="281" text-anchor="middle">Jev client</text>
+    <text class="body" x="965" y="299" text-anchor="middle">options → probabilities</text>
+    <text class="body" x="965" y="317" text-anchor="middle">pinned model jev-1.13.0</text>
+
+    <rect x="866" y="358" width="198" height="85" rx="6" fill="var(--soft-fill)" stroke="#6b7280" stroke-width="1.2"/>
+    <text class="title" x="965" y="381" text-anchor="middle">Session manager</text>
+    <text class="body" x="965" y="399" text-anchor="middle">tasks · click log</text>
+    <text class="body" x="965" y="417" text-anchor="middle">JSON export (download)</text>
+
+    <!-- Background ↔ storage -->
+    <line x1="965" y1="460" x2="965" y2="495" stroke="#374151" stroke-width="1.4" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <text class="small" x="975" y="482">session data</text>
+
+    <!-- Storage -->
+    <rect x="850" y="495" width="230" height="80" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="965" y="520" text-anchor="middle">chrome.storage.local</text>
+    <text class="body" x="965" y="538" text-anchor="middle">session · task · settings</text>
+    <text class="body" x="965" y="555" text-anchor="middle">Jev API key</text>
+
+    <!-- ===================== Between the tab and the extension ===================== -->
+    <!-- Background → content script: session state, sync & task screens -->
+    <line x1="850" y1="235" x2="740" y2="235" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="795" y="228" text-anchor="middle">session state</text>
+
+    <!-- Jev ranking ↔ Jev client -->
+    <line x1="720" y1="420" x2="866" y2="300" stroke="#2563eb" stroke-width="1.4" marker-start="url(#arrow-jev)" marker-end="url(#arrow-jev)"/>
+    <text class="small jev-text" x="0" y="0" text-anchor="middle" transform="translate(780,344) rotate(-39.4)">options ⇄ ranking</text>
+
+    <!-- Click logging → session manager -->
+    <path d="M720,525 H800 V410 H866" fill="none" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="0" y="0" text-anchor="middle" transform="translate(794,470) rotate(-90)">click + context</text>
+
+    <!-- Storage → content script -->
+    <line x1="850" y1="560" x2="740" y2="560" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="795" y="553" text-anchor="middle">settings</text>
+    <text class="small" x="795" y="575" text-anchor="middle">&amp; history</text>
+
+    <!-- ===================== External Jev service ===================== -->
+    <rect x="1140" y="255" width="125" height="90" rx="8" fill="var(--jev-fill)" stroke="var(--jev)" stroke-width="1.5" stroke-dasharray="6 4"/>
+    <text class="title jev-text" x="1202" y="284" text-anchor="middle">TypeSafe</text>
+    <text class="title jev-text" x="1202" y="302" text-anchor="middle">Jev API</text>
+    <text class="small" x="1202" y="321" text-anchor="middle">(external)</text>
+
+    <!-- Jev client → API -->
+    <line x1="1064" y1="300" x2="1140" y2="300" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="6 4" marker-start="url(#arrow-jev)" marker-end="url(#arrow-jev)"/>
+    <text class="small jev-text" x="1110" y="292" text-anchor="middle">HTTPS</text>
+
+    <!-- ===================== Offline analysis ===================== -->
+    <!-- Session manager → session JSON -->
+    <path d="M1064,400 H1090 V685 H1080" fill="none" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="1086" y="632" text-anchor="end">export</text>
+
+    <rect x="850" y="650" width="230" height="70" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="965" y="677" text-anchor="middle">Session JSON</text>
+    <text class="body" x="965" y="696" text-anchor="middle">one file per session</text>
+
+    <rect x="160" y="630" width="640" height="185" rx="14" fill="var(--frame-fill)" stroke="var(--frame)" stroke-width="1.2"/>
+    <text class="frame-label" x="176" y="652">Offline analysis (Python)</text>
+
+    <rect x="470" y="665" width="300" height="60" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="code" x="620" y="689" text-anchor="middle">click_tables.py</text>
+    <text class="body" x="620" y="708" text-anchor="middle">labels → actions → Tables 1 &amp; 2</text>
+
+    <rect x="470" y="740" width="300" height="60" rx="8" fill="var(--jev-fill)" stroke="var(--jev)" stroke-width="1.5"/>
+    <text class="code" x="620" y="764" text-anchor="middle">jev_replay.py</text>
+    <text class="body" x="620" y="783" text-anchor="middle">same clicks → Jev, history 0 vs 5</text>
+
+    <rect x="180" y="690" width="240" height="85" rx="8" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="300" y="715" text-anchor="middle">CSV results</text>
+    <text class="body" x="300" y="734" text-anchor="middle">table1 · table2 · clicks</text>
+    <text class="body" x="300" y="752" text-anchor="middle">accuracy · jev_predictions</text>
+
+    <!-- Session JSON → scripts → results -->
+    <line x1="850" y1="680" x2="770" y2="695" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="850" y1="705" x2="770" y2="768" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="470" y1="695" x2="420" y2="715" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <line x1="470" y1="770" x2="420" y2="752" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+    <!-- jev_replay → API (offline, cached) -->
+    <path d="M770,785 H1120 V320 H1140" fill="none" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow-jev)"/>
+    <text class="small jev-text" x="945" y="778" text-anchor="middle">replayed requests (cached)</text>
+
+    <!-- ===================== User (drawn last, so its arrows sit on top of the frames) ===================== -->
+    <rect x="20" y="250" width="110" height="90" rx="10" fill="#fff" stroke="#1f2937" stroke-width="1.5"/>
+    <text class="title" x="75" y="288" text-anchor="middle">User</text>
+    <text class="body" x="75" y="306" text-anchor="middle">keyboard &amp; mouse</text>
+
+    <!-- User → popup (over the top) -->
+    <path d="M75,250 V40 H1040 V95" fill="none" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="520" y="33" text-anchor="middle">chooses mode &amp; detection, starts and ends sessions</text>
+
+    <!-- User → Gmail page (mouse clicks) -->
+    <path d="M130,265 L150,125 H180" fill="none" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="104" y="242" text-anchor="middle">mouse</text>
+
+    <!-- User → content script (keys) -->
+    <path d="M130,325 L150,430 H200" fill="none" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="75" y="356" text-anchor="middle">Tab · Enter · Esc</text>
+
+    <!-- ===================== Legend ===================== -->
+    <rect x="1135" y="650" width="135" height="105" rx="8" fill="#fff" stroke="var(--frame)" stroke-width="1"/>
+    <text class="title" x="1147" y="670">Legend</text>
+    <line x1="1147" y1="688" x2="1180" y2="688" stroke="#374151" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <text class="small" x="1186" y="691">data / control</text>
+    <line x1="1147" y1="710" x2="1180" y2="710" stroke="#2563eb" stroke-width="1.4" stroke-dasharray="6 4" marker-end="url(#arrow-jev)"/>
+    <text class="small" x="1186" y="713">network</text>
+    <rect x="1147" y="726" width="30" height="16" rx="3" fill="var(--jev-fill)" stroke="var(--jev)" stroke-width="1.2"/>
+    <text class="small" x="1186" y="738">Jev path</text>
+  </svg>
+  </div>
+
+  <p class="note">To use in the thesis: File → Print → Save as PDF (landscape; this note and the subtitle are left out of the printout).</p>
+</main>
+</body>
+</html>

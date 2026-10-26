@@ -28,6 +28,24 @@
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }
 
+  // Current task: number, title and its steps (done ones ticked, the next expected one highlighted)
+  function showCurrentTask(session, task) {
+    document.getElementById('task-info-title').textContent = `📋 ${task.title || task.taskId}`;
+    document.getElementById('current-task-info').style.display = 'block';
+    document.getElementById('current-task-number').textContent =
+        `Task ${(session.tasks?.length || 0) + 1} of ${session.totalTasks} · ${task.taskId}`;
+
+    const reached = task.targetsReached || 0;
+    const list = document.getElementById('current-task-steps');
+    list.replaceChildren(...(task.steps || []).map((step, i) => {
+      const item = document.createElement('li');
+      item.textContent = step;
+      if (i < reached) item.className = 'done';
+      else if (i === reached) item.className = 'next';
+      return item;
+    }));
+  }
+
   // Update UI based on session state
   async function updateUI() {
     const result = await chrome.storage.local.get(['sessionActive', 'currentSession', 'currentTask']);
@@ -47,10 +65,7 @@
 
       // Update current task info
       if (result.currentTask) {
-        document.getElementById('task-info-title').textContent = `📋 Current Task: ${result.currentTask.taskId}`;
-        document.getElementById('current-task-info').style.display = 'block';
-        document.getElementById('current-task-number').textContent =
-            `Task ${(result.currentSession.tasks?.length || 0)+1} of ${result.currentSession.totalTasks}`;
+        showCurrentTask(result.currentSession, result.currentTask);
       } else {
         // No active task
         document.getElementById('current-task-info').style.display = 'none';
@@ -91,9 +106,7 @@
 
         // Update current task display
         if (result.currentTask) {
-          document.getElementById('task-info-title').textContent = `📋 Current Task: ${result.currentTask.taskId}`;
-          document.getElementById('current-task-info').style.display = 'block';
-          document.getElementById('current-task-number').textContent = `Task ${(result.currentSession.tasks?.length || 0)+1} of ${result.currentSession.totalTasks}`;
+          showCurrentTask(result.currentSession, result.currentTask);
         }
       }
     }, 1000);

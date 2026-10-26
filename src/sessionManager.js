@@ -2,8 +2,66 @@
 
 // Free recording ('record' mode): one open-ended task with no targets, ended from the popup
 const FREE_RECORDING_TASKS = [
-    { taskId: "free_recording", targets: [] }
+    { taskId: "free_recording", title: "Free recording", targets: [], steps: [] }
 ];
+
+// Targets that only bring the participant to a page. When the participant is already on that page,
+// the step is done without a click: nobody clicks "Inbox" while looking at the Inbox list (the star
+// task starts there, and discarding a new message leaves the participant there)
+const PAGE_TARGETS = {
+    "Inbox": (page) => page?.site === "gmail" && page.folder === "inbox" &&
+        !page.emailOpen && !page.composeOpen && !page.dialogOpen
+};
+const PAGE_CHECK_DELAY_MS = 1500; // after a click, before asking the session tab which page it shows
+
+// Study tasks (EETP v1.2). steps[i] is the instruction for targets[i], worded as in the protocol
+// (Supplementary Material A, Section 6); the popup shows them to the researcher.
+const HELLO_THERE = "Hello there! — - Dear user, Please read this message. Thank you Best regards, BK";
+
+function readDraftTask(taskId, subject, target) {
+    return {
+        taskId,
+        title: `Read the draft "${subject}"`,
+        targets: ["Drafts", target, "Close", "Inbox"],
+        steps: [
+            'In the navigation panel, click on "Drafts".',
+            `Click on the email titled "${subject}" to open it.`,
+            "Close the draft with the X (close) button at the top-right corner of the draft window.",
+            'Click on "Inbox" in the navigation panel.'
+        ]
+    };
+}
+
+function starTask(taskId) {
+    return {
+        taskId,
+        title: 'Star and unstar "Hello there!"',
+        targets: ["Inbox", HELLO_THERE, "Not starred", "Inbox", "Starred", HELLO_THERE, "Starred", "Inbox"],
+        steps: [
+            'In the navigation panel, click on "Inbox".',
+            'In the Inbox, click on the message titled "Hello there!" to open it.',
+            "Click on the star icon in the top-right area of the open message so that it turns yellow.",
+            'Click on "Inbox" in the navigation panel.',
+            'Click on "Starred" in the navigation panel.',
+            'Click on the message "Hello there!" to open it.',
+            "Click on the yellow star icon in the top-right area of the message to unstar it.",
+            'Click on "Inbox" in the navigation panel.'
+        ]
+    };
+}
+
+function composeTask(taskId) {
+    return {
+        taskId,
+        title: "Compose and discard a message",
+        targets: ["Compose", "Discard draft ‪(Ctrl-Shift-D)‬", "Inbox"],
+        steps: [
+            'Click on "Compose" to open a new message window.',
+            "Click on the trash icon at the bottom-right corner of the compose window to discard the draft.",
+            'Click on "Inbox" in the navigation panel.'
+        ]
+    };
+}
 
 class SessionManager {
     constructor() {
@@ -28,52 +86,16 @@ class SessionManager {
 
     // Predefined task list
     STUDY_TASKS = [
-        {
-            taskId: "task_0101",
-            targets: ["Drafts", "FIRST MESSAGE — - HELLO THIS IS THE FIRST MESSAGE", "Close", "Inbox"]
-        },
-        {
-            taskId: "task_0102",
-            targets: ["Drafts", "SECOND MESSAGE — - THIS IS THE SECOND MESSAGE", "Close", "Inbox"]
-        },
-        {
-            taskId: "task_0103",
-            targets: ["Drafts", "THIRD MESSAGE — - This is the third message", "Close", "Inbox"]
-        },
-        {
-            taskId: "task_0104",
-            targets: ["Inbox", "Hello there! — - Dear user, Please read this message. Thank you Best regards, BK",
-                "Not starred", "Inbox", "Starred",
-                "Hello there! — - Dear user, Please read this message. Thank you Best regards, BK",
-                "Starred", "Inbox"]
-        },
-        {
-            taskId: "task_0105",
-            targets: ["Compose", "Discard draft ‪(Ctrl-Shift-D)‬", "Inbox"]
-        },
-        {
-            taskId: "task_0201",
-            targets: ["Drafts", "FIRST MESSAGE — - HELLO THIS IS THE FIRST MESSAGE", "Close", "Inbox"]
-        },
-        {
-            taskId: "task_0202",
-            targets: ["Drafts", "SECOND MESSAGE — - THIS IS THE SECOND MESSAGE", "Close", "Inbox"]
-        },
-        {
-            taskId: "task_0203",
-            targets: ["Drafts", "THIRD MESSAGE — - This is the third message", "Close", "Inbox"]
-        },
-        {
-            taskId: "task_0204",
-            targets: ["Inbox", "Hello there! — - Dear user, Please read this message. Thank you Best regards, BK",
-                "Not starred", "Inbox", "Starred",
-                "Hello there! — - Dear user, Please read this message. Thank you Best regards, BK",
-                "Starred", "Inbox"]
-        },
-        {
-            taskId: "task_0205",
-            targets: ["Compose", "Discard draft ‪(Ctrl-Shift-D)‬", "Inbox"]
-        }
+        readDraftTask("task_0101", "FIRST MESSAGE", "FIRST MESSAGE — - HELLO THIS IS THE FIRST MESSAGE"),
+        readDraftTask("task_0102", "SECOND MESSAGE", "SECOND MESSAGE — - THIS IS THE SECOND MESSAGE"),
+        readDraftTask("task_0103", "THIRD MESSAGE", "THIRD MESSAGE — - This is the third message"),
+        starTask("task_0104"),
+        composeTask("task_0105"),
+        readDraftTask("task_0201", "FIRST MESSAGE", "FIRST MESSAGE — - HELLO THIS IS THE FIRST MESSAGE"),
+        readDraftTask("task_0202", "SECOND MESSAGE", "SECOND MESSAGE — - THIS IS THE SECOND MESSAGE"),
+        readDraftTask("task_0203", "THIRD MESSAGE", "THIRD MESSAGE — - This is the third message"),
+        starTask("task_0204"),
+        composeTask("task_0205")
     ]
 
     async startSession(userId, sessionId, mode, detection = 'gmail-rules') {
@@ -121,7 +143,7 @@ class SessionManager {
         return this.sessionData;
     }
 
-    async startTask(taskIndex = null) {
+    async startTask(taskIndex = null, startTs = Date.now()) {
         if (!this.sessionActive) {
             throw new Error('No active session');
         }
@@ -136,11 +158,15 @@ class SessionManager {
             throw new Error('Invalid task index');
         }
 
-        const now = Date.now();
+        const now = startTs;
 
         this.currentTask = {
             taskId: taskTemplate.taskId,
+            title: taskTemplate.title || taskTemplate.taskId,
             targets: taskTemplate.targets || [],
+            steps: taskTemplate.steps || [],
+            targetsReached: 0, // for the popup's checklist; not exported
+            satisfiedSteps: {}, // target index -> clicks before it, for steps done without a click (PAGE_TARGETS)
             startTs: now,
             endTs: null,
             taskDuration: 0,
@@ -160,6 +186,7 @@ class SessionManager {
 
         // Broadcast task info to content script
         this.broadcastTaskInfo();
+        this.schedulePageCheck(); // the task may start on a page its first step leads to
 
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0]) {
@@ -255,13 +282,28 @@ class SessionManager {
 
         const targets = this.currentTask.targets || [];
         const interactions = this.currentTask.interactions || [];
+        const satisfied = this.currentTask.satisfiedSteps || {};
         const clickSequence = [];
         const mode = this.sessionData.mode;
 
         let targetIndex = 0;
 
+        // Steps done without a click (the participant was already on their page), in their place
+        const addSatisfiedSteps = (clicksSoFar) => {
+            while (targetIndex < targets.length && satisfied[targetIndex] !== undefined &&
+                   satisfied[targetIndex] <= clicksSoFar) {
+                clickSequence.push(this.stepWithoutClick(targets[targetIndex], {
+                    isError: false,
+                    errorReason: null,
+                    satisfiedWithoutClick: true
+                }));
+                targetIndex++;
+            }
+        };
+
         // Process each interaction
         for (let i = 0; i < interactions.length; i++) {
+            addSatisfiedSteps(i);
             const interaction = interactions[i];
 
             // Calculate tabsRequired based on mode
@@ -318,25 +360,127 @@ class SessionManager {
             clickSequence.push(clickInfo);
         }
 
+        addSatisfiedSteps(interactions.length);
+
         // Add missing targets (targets that were never clicked)
         while (targetIndex < targets.length) {
-            clickSequence.push({
-                timestamp: null,
-                tabsRequired: null,
-                entersRequired: null,
-                elementText: null,
-                TabTabGoClick: false,
-                manualClick: false,
-                cursorTraveledDistancePx: 0,
-                timeSinceLastInteractionMs: null,
-                expectedTarget: targets[targetIndex],
+            clickSequence.push(this.stepWithoutClick(targets[targetIndex], {
                 isError: true,
                 errorReason: 'absent'
-            });
+            }));
             targetIndex++;
         }
 
         return clickSequence;
+    }
+
+    // Click-sequence entry for a step with no click: done without one, or never done ('absent')
+    stepWithoutClick(target, outcome) {
+        return {
+            timestamp: null,
+            tabsRequired: null,
+            entersRequired: null,
+            elementText: null,
+            TabTabGoClick: false,
+            manualClick: false,
+            cursorTraveledDistancePx: 0,
+            timeSinceLastInteractionMs: null,
+            expectedTarget: target,
+            ...outcome
+        };
+    }
+
+    // Whether a click-sequence entry reached its target
+    static isReached(entry) {
+        return !entry.isError && (entry.timestamp !== null || entry.satisfiedWithoutClick === true);
+    }
+
+    /**
+     * Marks the current task's next steps as done if they only lead to the page the participant is on
+     * (PAGE_TARGETS). Returns whether a step was marked.
+     */
+    markStepsAlreadyDone(page) {
+        const task = this.currentTask;
+        if (!task || !page) return false;
+        const targets = task.targets || [];
+        task.satisfiedSteps = task.satisfiedSteps || {};
+
+        let next = this.countReachedTargets();
+        let marked = false;
+        while (next < targets.length && PAGE_TARGETS[targets[next]]?.(page)) {
+            task.satisfiedSteps[next] = task.interactions.length;
+            marked = true;
+            next++;
+        }
+        return marked;
+    }
+
+    /**
+     * Before a click is added to the current task: steps that only lead to the page the click was made on
+     * are already done. Returns true if that finished the task, so the click belongs to the next task.
+     */
+    applyPageSteps(data) {
+        const task = this.currentTask;
+        const targets = task.targets || [];
+        if (targets.length === 0) return false;
+
+        const reached = this.countReachedTargets();
+        const matches = (i) => i >= 0 && i < targets.length && this.matchesTarget(data.elementText, targets[i]);
+
+        // The participant clicked a step that already counted as done (e.g. "Inbox" on the Inbox list,
+        // as the instructions say): the click is that step after all
+        if (task.satisfiedSteps?.[reached - 1] !== undefined && !matches(reached) && matches(reached - 1)) {
+            delete task.satisfiedSteps[reached - 1];
+            return false;
+        }
+        if (matches(reached)) return false;
+
+        this.markStepsAlreadyDone(data.context?.pageState);
+        return this.countReachedTargets() >= targets.length;
+    }
+
+    // Time of the current task's last click (its start if there is none)
+    lastClickTimestamp() {
+        const clicks = this.currentTask?.interactions || [];
+        return clicks.length > 0 ? clicks[clicks.length - 1].timestamp : this.currentTask?.startTs;
+    }
+
+    /**
+     * When the next step only leads to a page, look at the session tab's page once the last click has
+     * taken effect. This finishes e.g. the compose task, whose last step ("Inbox") is where discarding
+     * the message leaves the participant, even when no click follows (the last task of the session).
+     */
+    schedulePageCheck() {
+        clearTimeout(this.pageCheckTimer);
+        const task = this.currentTask;
+        if (!task || !PAGE_TARGETS[(task.targets || [])[this.countReachedTargets()]]) return;
+
+        const clicks = task.interactions.length;
+        const unchanged = () => this.currentTask === task && task.interactions.length === clicks;
+        this.pageCheckTimer = setTimeout(async () => {
+            if (!unchanged()) return;
+            const page = await this.getSessionPage();
+            if (!unchanged() || !this.markStepsAlreadyDone(page)) return;
+
+            task.targetsReached = this.countReachedTargets();
+            await chrome.storage.local.set({ currentTask: task });
+            if (task.targetsReached >= task.targets.length) {
+                await this.completeTask('completed', this.lastClickTimestamp());
+            }
+        }, PAGE_CHECK_DELAY_MS);
+    }
+
+    // The page the session tab shows now (from its content script), or null
+    async getSessionPage() {
+        try {
+            const { sessionTabId } = await chrome.storage.local.get(['sessionTabId']);
+            if (sessionTabId == null) return null;
+            const response = await chrome.tabs.sendMessage(sessionTabId, { action: 'getPageState' });
+            return response?.pageState ?? null;
+        } catch (error) {
+            console.warn('⚠️ Could not read the page of the session tab:', error.message);
+            return null;
+        }
     }
 
     // Log interaction during task
@@ -366,6 +510,13 @@ class SessionManager {
             context: data.context ?? null,
         };
 
+        // Steps the participant was already done with (see applyPageSteps); a finished task passes the
+        // click on to the next one, ending when its last click took effect
+        while (this.applyPageSteps(data)) {
+            await this.completeTask('completed', this.lastClickTimestamp());
+            if (!this.currentTask) return; // that was the last task
+        }
+
         this.currentTask.interactions.push(interaction);
         this.sessionData.totalInteractions++;
 
@@ -377,6 +528,7 @@ class SessionManager {
         }
 
         this.lastInteractionTime = now;
+        this.currentTask.targetsReached = this.countReachedTargets();
 
         await chrome.storage.local.set({
             currentSession: this.sessionData,
@@ -385,6 +537,7 @@ class SessionManager {
 
         // Check if task is complete
         await this.checkTaskCompletion();
+        this.schedulePageCheck();
     }
 
     /**
@@ -424,29 +577,24 @@ class SessionManager {
         // Free recording has no targets, so it only ends from the popup
         if (targets.length === 0) return;
 
-        // Analyze current sequence
-        const clickSequence = this.analyzeClickSequence();
-
-        // Count how many targets have been correctly reached
-        let correctTargets = 0;
-        for (const click of clickSequence) {
-            if (!click.isError && click.timestamp !== null) {
-                correctTargets++;
-            }
-        }
-
         // Task is complete if all targets reached
-        if (correctTargets >= targets.length) {
+        if (this.countReachedTargets() >= targets.length) {
             await this.completeTask('completed');
         }
     }
 
-    async completeTask(endState = 'completed') {
+    // How many of the current task's targets have been reached, in order
+    countReachedTargets() {
+        return this.analyzeClickSequence().filter(SessionManager.isReached).length;
+    }
+
+    async completeTask(endState = 'completed', endTs = Date.now()) {
         if (!this.currentTask) {
             return;
         }
 
-        const now = Date.now();
+        clearTimeout(this.pageCheckTimer);
+        const now = endTs;
 
         // Analyze final click sequence
         this.currentTask.clickSequence = this.analyzeClickSequence();
@@ -460,7 +608,7 @@ class SessionManager {
             if (click.isError) {
                 hasErrors = true;
             }
-            if (!click.isError && click.timestamp !== null) {
+            if (SessionManager.isReached(click)) {
                 correctTargets++;
             }
         }
@@ -499,7 +647,7 @@ class SessionManager {
         // Check if there are more tasks
         if (this.currentTaskIndex < this.TASKS.length) {
             // Start next task immediately
-            await this.startTask(this.currentTaskIndex);
+            await this.startTask(this.currentTaskIndex, now);
         } else {
             // No more tasks, end session
             await this.endSession();
