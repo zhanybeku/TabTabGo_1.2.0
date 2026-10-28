@@ -1,0 +1,10 @@
+# Dependencies (restore with `npm install`)
+node_modules/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+__MACOSX/
